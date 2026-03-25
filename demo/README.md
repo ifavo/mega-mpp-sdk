@@ -1,6 +1,9 @@
 # MegaETH Demo
 
-The demo pairs a lightweight Express server with a React + Vite client.
+The demo ships two runtimes around the same React + Vite client:
+
+- `demo/server`: local Express server for fast local development
+- `demo/worker`: full-stack Cloudflare Worker that serves static assets and the demo API from one origin
 
 ## Install
 
@@ -15,6 +18,17 @@ pnpm build
 pnpm demo:server
 pnpm demo:app
 ```
+
+## Cloudflare Worker
+
+Build the frontend once, then run the Worker locally:
+
+```bash
+pnpm demo:worker:build
+pnpm demo:worker:dev
+```
+
+The Worker keeps replay-sensitive payment state in a Durable Object. It defaults to MegaETH testnet and testnet USDC, but it still starts without secrets so `/api/v1/health` and `/api/v1/config` can explain what you need to configure before the paid routes can succeed.
 
 ## Routes
 

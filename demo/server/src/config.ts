@@ -5,35 +5,31 @@ import {
   megaeth as megaethChain,
   megaethTestnet,
 } from "../../../typescript/packages/mpp/src/constants.js";
+import type {
+  DemoAddress,
+  DemoConfig,
+  DemoHealthStatus,
+  DemoMode,
+  ModeStatus,
+} from "../../shared/types.js";
 import type { Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-export type DemoMode = "permit2" | "hash";
-
-export type ModeStatus = {
-  blockers: string[];
-  feePayer: boolean;
-  label: string;
-  ready: boolean;
-  recipient?: Address | undefined;
-  transactionSender: "client" | "server";
-};
-
-export type DemoConfig = {
-  apiOrigin: string;
-  canSettle: boolean;
-  chainId: number;
-  feePayer: boolean;
-  modes: Record<DemoMode, ModeStatus>;
-  permit2Address: `0x${string}`;
-  recipient?: `0x${string}` | undefined;
-  rpcUrl: string;
-  splitAmount: string;
-  splitRecipient?: `0x${string}` | undefined;
-  testnet: boolean;
-  tokenAddress: `0x${string}`;
-  tokenDecimals: number;
-  tokenSymbol: string;
+export type DemoEnvironmentBindings = {
+  DEMO_PUBLIC_ORIGIN?: string | undefined;
+  MEGAETH_FEE_PAYER?: string | undefined;
+  MEGAETH_PERMIT2_ADDRESS?: DemoAddress | undefined;
+  MEGAETH_RECIPIENT_ADDRESS?: DemoAddress | undefined;
+  MEGAETH_RPC_URL?: string | undefined;
+  MEGAETH_SETTLEMENT_PRIVATE_KEY?: DemoAddress | undefined;
+  MEGAETH_SPLIT_AMOUNT?: string | undefined;
+  MEGAETH_SPLIT_RECIPIENT?: DemoAddress | undefined;
+  MEGAETH_TESTNET?: string | undefined;
+  MEGAETH_TOKEN_ADDRESS?: DemoAddress | undefined;
+  MEGAETH_TOKEN_DECIMALS?: string | undefined;
+  MEGAETH_TOKEN_SYMBOL?: string | undefined;
+  MPP_SECRET_KEY?: string | undefined;
+  PORT?: string | undefined;
 };
 
 export type DemoEnvironment = {
@@ -42,7 +38,6 @@ export type DemoEnvironment = {
   feePayer: boolean;
   modeStatuses: Record<DemoMode, ModeStatus>;
   permit2Address: `0x${string}`;
-  port: number;
   recipientAddress?: `0x${string}` | undefined;
   rpcUrl: string;
   secretKey?: string | undefined;
@@ -57,35 +52,40 @@ export type DemoEnvironment = {
   };
 };
 
-export function loadDemoEnvironment(
-  env: NodeJS.ProcessEnv = process.env,
-): DemoEnvironment {
-  const port = Number(env.PORT ?? 3001);
-  const testnet = env.MEGAETH_TESTNET !== "false";
+export type NodeDemoRuntime = {
+  environment: DemoEnvironment;
+  port: number;
+};
+
+export function createDemoEnvironment(parameters: {
+  apiOrigin: string;
+  bindings?: DemoEnvironmentBindings | undefined;
+}): DemoEnvironment {
+  const bindings = parameters.bindings ?? {};
+  const testnet = bindings.MEGAETH_TESTNET !== "false";
   const chain = testnet ? megaethTestnet : megaethChain;
-  const rpcUrl = env.MEGAETH_RPC_URL ?? chain.rpcUrls.default.http[0]!;
-  const tokenAddress = (env.MEGAETH_TOKEN_ADDRESS ??
+  const rpcUrl = bindings.MEGAETH_RPC_URL ?? chain.rpcUrls.default.http[0]!;
+  const tokenAddress = (bindings.MEGAETH_TOKEN_ADDRESS ??
     DEFAULT_USDM.address) as `0x${string}`;
-  const permit2Address = (env.MEGAETH_PERMIT2_ADDRESS ??
+  const permit2Address = (bindings.MEGAETH_PERMIT2_ADDRESS ??
     PERMIT2_ADDRESS) as `0x${string}`;
-  const splitRecipient = env.MEGAETH_SPLIT_RECIPIENT as
+  const splitRecipient = bindings.MEGAETH_SPLIT_RECIPIENT as
     | `0x${string}`
     | undefined;
-  const splitAmount = env.MEGAETH_SPLIT_AMOUNT ?? "50000";
-  const feePayer = env.MEGAETH_FEE_PAYER !== "false";
-  const apiOrigin = env.DEMO_PUBLIC_ORIGIN ?? `http://localhost:${port}`;
-  const secretKey = env.MPP_SECRET_KEY;
-  const settlementKey = env.MEGAETH_SETTLEMENT_PRIVATE_KEY as
+  const splitAmount = bindings.MEGAETH_SPLIT_AMOUNT ?? "50000";
+  const feePayer = bindings.MEGAETH_FEE_PAYER !== "false";
+  const secretKey = bindings.MPP_SECRET_KEY;
+  const settlementKey = bindings.MEGAETH_SETTLEMENT_PRIVATE_KEY as
     | `0x${string}`
     | undefined;
   const settlementAccount = settlementKey
     ? privateKeyToAccount(settlementKey)
     : undefined;
-  const recipientAddress = (env.MEGAETH_RECIPIENT_ADDRESS ??
+  const recipientAddress = (bindings.MEGAETH_RECIPIENT_ADDRESS ??
     settlementAccount?.address) as `0x${string}` | undefined;
 
   return {
-    apiOrigin,
+    apiOrigin: parameters.apiOrigin,
     chain,
     feePayer,
     modeStatuses: createModeStatuses({
@@ -95,7 +95,6 @@ export function loadDemoEnvironment(
       settlementAccount,
     }),
     permit2Address,
-    port,
     ...(recipientAddress ? { recipientAddress } : {}),
     rpcUrl,
     ...(secretKey ? { secretKey } : {}),
@@ -105,12 +104,35 @@ export function loadDemoEnvironment(
     testnet,
     tokenAddress,
     tokenMetadata: resolveTokenMetadata({
-      configuredDecimals: env.MEGAETH_TOKEN_DECIMALS,
-      configuredSymbol: env.MEGAETH_TOKEN_SYMBOL,
+      configuredDecimals: bindings.MEGAETH_TOKEN_DECIMALS,
+      configuredSymbol: bindings.MEGAETH_TOKEN_SYMBOL,
       testnet,
       tokenAddress,
     }),
   };
+}
+
+export function loadNodeDemoEnvironment(
+  bindings: DemoEnvironmentBindings = getProcessBindings(),
+): NodeDemoRuntime {
+  const port = Number(bindings.PORT ?? 3001);
+  return {
+    environment: createDemoEnvironment({
+      apiOrigin: bindings.DEMO_PUBLIC_ORIGIN ?? `http://localhost:${port}`,
+      bindings,
+    }),
+    port,
+  };
+}
+
+export function loadWorkerDemoEnvironment(
+  bindings: DemoEnvironmentBindings,
+  request: Request,
+): DemoEnvironment {
+  return createDemoEnvironment({
+    apiOrigin: new URL(request.url).origin,
+    bindings,
+  });
 }
 
 export function createDemoConfig(environment: DemoEnvironment): DemoConfig {
@@ -214,7 +236,9 @@ export function resolveTokenMetadata(parameters: {
   return DEFAULT_USDM;
 }
 
-export function resolveDemoStatus(modes: Record<DemoMode, ModeStatus>): string {
+export function resolveDemoStatus(
+  modes: Record<DemoMode, ModeStatus>,
+): DemoHealthStatus {
   if (modes.permit2.ready && modes.hash.ready) {
     return "ready";
   }
@@ -257,4 +281,18 @@ export function getWarnings(parameters: {
   }
 
   return warnings;
+}
+
+function getProcessBindings(): DemoEnvironmentBindings {
+  const processValue = Reflect.get(globalThis, "process");
+  if (typeof processValue !== "object" || processValue === null) {
+    return {};
+  }
+
+  const env = Reflect.get(processValue, "env");
+  if (typeof env !== "object" || env === null) {
+    return {};
+  }
+
+  return env as DemoEnvironmentBindings;
 }

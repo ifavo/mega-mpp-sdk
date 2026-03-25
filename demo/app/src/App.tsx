@@ -3,7 +3,12 @@ import { useMemo, useState, type ReactNode } from "react";
 import { type Address } from "viem";
 
 import { formatChargeCost } from "./cost.js";
-import type { ChargeProgress, DemoConfig, DemoMode } from "./types.js";
+import type {
+  ChargeProgress,
+  DemoConfigResponse,
+  DemoHealthResponse,
+  DemoMode,
+} from "./types.js";
 import { usePaidResourceRequest } from "./usePaidResource.js";
 import { connectWalletForDemoChain } from "./wallet.js";
 
@@ -23,7 +28,7 @@ export function App() {
         );
       }
 
-      return (await response.json()) as DemoConfig;
+      return (await response.json()) as DemoConfigResponse;
     },
     queryKey: ["demo-config"],
   });
@@ -37,7 +42,7 @@ export function App() {
         );
       }
 
-      return (await response.json()) as DemoConfig;
+      return (await response.json()) as DemoHealthResponse;
     },
     queryKey: ["demo-health"],
     refetchInterval: 15_000,

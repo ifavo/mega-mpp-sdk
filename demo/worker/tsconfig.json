@@ -1,22 +1,23 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "WebWorker"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "types": ["node"],
-    "esModuleInterop": true,
     "resolveJsonModule": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": [
+      "@cloudflare/workers-types",
+      "@cloudflare/vitest-pool-workers/types"
+    ]
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx",
     "../shared/**/*.ts",
-    "vite.config.ts"
+    "../server/src/api.ts",
+    "../server/src/config.ts"
   ]
 }

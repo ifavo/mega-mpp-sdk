@@ -37,7 +37,8 @@ mega-mpp-sdk/
 ├── docs/
 ├── demo/
 │   ├── app/
-│   └── server/
+│   ├── server/
+│   └── worker/
 ├── .github/workflows/
 └── justfile
 ```
@@ -123,7 +124,7 @@ just ts-build
 just release-prep
 ```
 
-For a demo walkthrough and environment variables, see [docs/getting-started.md](/Users/m/workspace/mega-mpp-sdk/docs/getting-started.md) and [docs/demo.md](/Users/m/workspace/mega-mpp-sdk/docs/demo.md).
+For a demo walkthrough, including the local Express path and the Cloudflare Worker path, see [docs/getting-started.md](/Users/m/workspace/mega-mpp-sdk/docs/getting-started.md) and [docs/demo.md](/Users/m/workspace/mega-mpp-sdk/docs/demo.md).
 
 ## License
 

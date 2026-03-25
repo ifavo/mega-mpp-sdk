@@ -1,12 +1,24 @@
 # Demo
 
-The demo is a React + Vite client paired with a lightweight Express server.
+The repository now ships two demo runtimes around the same React + Vite client:
+
+- local Node demo: `demo/app` + `demo/server`
+- Cloudflare demo: `demo/app` + `demo/worker`
+
+The local Express server remains the primary rapid-iteration path. The Worker demo is the Cloudflare compatibility and deployment example.
 
 ## Install
 
 ```bash
 pnpm demo:install
 ```
+
+## Architecture
+
+- `demo/app` builds the SPA that both runtimes serve.
+- `demo/server` is the local Express adapter.
+- `demo/worker` is the Cloudflare adapter.
+- The Worker stores replay-sensitive challenge state in a Durable Object, not KV.
 
 ## Testnet Quickstart
 
@@ -41,6 +53,48 @@ pnpm demo:app
 
 Open `http://localhost:5173`, connect the client wallet, review the cost shown in the `Request Paid Resource` panel, select `Server broadcasts Permit2 transaction`, and run the `Direct MegaETH charge demo` endpoint.
 
+## Cloudflare Worker Quickstart
+
+The Worker demo serves the built frontend and the API from one Worker origin. Build the SPA first, then start Wrangler:
+
+```bash
+pnpm demo:worker:build
+pnpm demo:worker:dev
+```
+
+The Worker defaults to MegaETH testnet, Carrot RPC, and testnet USDC through [wrangler.jsonc](/Users/m/workspace/mega-mpp-sdk/demo/worker/wrangler.jsonc). It still starts without secrets so config and health can describe missing setup before the paid endpoints are usable.
+
+Set the required Worker secrets before running a funded flow:
+
+```bash
+cd demo/worker
+pnpm wrangler secret put MPP_SECRET_KEY
+pnpm wrangler secret put MEGAETH_SETTLEMENT_PRIVATE_KEY
+```
+
+Optional Worker secrets or vars:
+
+- `MEGAETH_RECIPIENT_ADDRESS`
+- `MEGAETH_SPLIT_RECIPIENT`
+- `MEGAETH_SPLIT_AMOUNT`
+- `MEGAETH_FEE_PAYER`
+- `MEGAETH_PERMIT2_ADDRESS`
+- `MEGAETH_TOKEN_SYMBOL`
+- `MEGAETH_TOKEN_DECIMALS`
+
+Mode-specific prerequisites stay the same in the Worker runtime:
+
+- `permit2`: `MPP_SECRET_KEY` and `MEGAETH_SETTLEMENT_PRIVATE_KEY`
+- `hash`: `MPP_SECRET_KEY` and either `MEGAETH_RECIPIENT_ADDRESS` or `MEGAETH_SETTLEMENT_PRIVATE_KEY`
+
+Deploy manually with Wrangler after the app build is up to date:
+
+```bash
+pnpm demo:worker:deploy
+```
+
+The Worker demo is deployable, but v1 does not add auth, rate limiting, or public abuse protection.
+
 ## One-Time Client Approval
 
 Approve Permit2 once from the client wallet before the first funded run:
@@ -66,6 +120,8 @@ The demo boots without live credentials so you can inspect the UI and readiness 
 - `/api/v1/health` reports `configuration-required` or `partial-configuration`
 - `/api/v1/config` publishes separate blockers for `permit2` and transaction-hash credential flows
 - paid endpoints return instructive `503` responses until their selected mode is configured
+
+The same partial-configuration behavior applies to the Worker demo. The difference is that the Worker stores replay markers in a Durable Object once real payment flows are enabled.
 
 ## Live/Testnet Environment
 

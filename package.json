@@ -5,13 +5,21 @@
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "build": "pnpm --dir typescript build",
-    "demo:install": "pnpm --dir demo/app install && pnpm --dir demo/server install",
+    "demo:install": "pnpm --dir demo/app install && pnpm --dir demo/server install && pnpm --dir demo/worker install",
     "demo:app": "pnpm --dir demo/app dev",
     "demo:server": "pnpm --dir demo/server dev",
-    "demo:build": "pnpm --dir demo/app build && pnpm --dir demo/server build",
+    "demo:build": "pnpm --dir demo/app build && pnpm --dir demo/server build && pnpm --dir demo/worker build",
+    "demo:test": "pnpm --dir demo/app test && pnpm --dir demo/server test && pnpm --dir demo/worker test",
+    "demo:typecheck": "pnpm --dir demo/app typecheck && pnpm --dir demo/server typecheck && pnpm --dir demo/worker typecheck",
+    "demo:worker:install": "pnpm --dir demo/worker install",
+    "demo:worker:build": "pnpm --dir demo/app build && pnpm --dir demo/worker build",
+    "demo:worker:dev": "pnpm --dir demo/app build && pnpm --dir demo/worker dev",
+    "demo:worker:deploy": "pnpm --dir demo/app build && pnpm --dir demo/worker deploy",
+    "demo:worker:test": "pnpm --dir demo/worker test",
+    "demo:worker:typecheck": "pnpm --dir demo/worker typecheck",
     "lint": "pnpm --dir typescript lint && pnpm --dir typescript format:check",
-    "test": "pnpm --dir typescript test:all",
+    "test": "pnpm --dir typescript test:all && pnpm demo:test",
     "test:live": "pnpm --dir typescript test:live",
-    "typecheck": "pnpm --dir typescript typecheck"
+    "typecheck": "pnpm --dir typescript typecheck && pnpm demo:typecheck"
   }
 }

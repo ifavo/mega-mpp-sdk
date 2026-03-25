@@ -1,0 +1,20 @@
+{
+  "name": "mega-mpp-demo-worker",
+  "license": "Unlicense",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm typecheck",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.13.4",
+    "@cloudflare/workers-types": "^4.20260317.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.1",
+    "wrangler": "^4.77.0"
+  }
+}

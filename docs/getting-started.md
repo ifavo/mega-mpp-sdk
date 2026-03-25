@@ -26,6 +26,11 @@ just release-prep
 
 ## Demo Quickstart
 
+Choose one of these demo paths:
+
+- local development: `pnpm demo:server` and `pnpm demo:app`
+- Cloudflare compatibility: `pnpm demo:worker:build` and `pnpm demo:worker:dev`
+
 For the MegaETH testnet demo, use two wallets:
 
 - a server wallet with testnet ETH so it can sponsor gas for `permit2` mode
@@ -72,6 +77,27 @@ cast send "$MEGAETH_TOKEN_ADDRESS" \
 ```
 
 After both processes are running, open `http://localhost:5173`, connect the client wallet, confirm the displayed cost in the `Request Paid Resource` panel, select `Server broadcasts Permit2 transaction`, and run the `Direct MegaETH charge demo` endpoint.
+
+## Cloudflare Worker Demo
+
+The Worker demo serves the built SPA and the demo API from one origin with a Durable Object-backed replay store.
+
+Build and run it locally with:
+
+```bash
+pnpm demo:worker:build
+pnpm demo:worker:dev
+```
+
+Before you exercise a funded Worker flow, set these secrets in `demo/worker`:
+
+```bash
+cd demo/worker
+pnpm wrangler secret put MPP_SECRET_KEY
+pnpm wrangler secret put MEGAETH_SETTLEMENT_PRIVATE_KEY
+```
+
+`hash` mode can also use `MEGAETH_RECIPIENT_ADDRESS` instead of the settlement private key. The Worker defaults to MegaETH testnet and the documented Carrot USDC token through Wrangler vars, so `DEMO_PUBLIC_ORIGIN` is not needed in that path.
 
 ## Local Deterministic Flow
 
