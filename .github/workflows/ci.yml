@@ -28,6 +28,11 @@ jobs:
           cache-dependency-path: |
             typescript/pnpm-lock.yaml
 
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
       - name: Install TypeScript workspace
         run: pnpm --dir typescript install --frozen-lockfile
 
