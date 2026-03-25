@@ -130,8 +130,11 @@ export SESSION_ESCROW_CLOSE_DELAY=86400
 
 forge script script/DeployMegaMppSessionEscrow.s.sol:DeployMegaMppSessionEscrowScript \
   --rpc-url "$MEGAETH_RPC_URL" \
+  --skip-simulation \
   --broadcast
 ```
+
+On MegaETH, include `--skip-simulation` when you deploy with Foundry. The deployment flow should target the live broadcast path directly.
 
 Verification helper:
 
@@ -144,6 +147,16 @@ export SESSION_ESCROW_VERIFIER_URL='https://your-blockscout-or-etherscan-api'
 
 pnpm contracts:verify
 ```
+
+Deployment and operations checklist:
+
+- use the proxy address in `MEGAETH_SESSION_ESCROW_ADDRESS`, never the implementation address
+- `SESSION_ESCROW_OWNER` controls upgrades through UUPS, so production deployments should use a multisig or dedicated admin account
+- `SESSION_ESCROW_CLOSE_DELAY` defines the forced-close withdrawal window after `requestClose`
+- only the configured payee can call `settle` and `close`, so keep the server settlement wallet aligned with the payee you intend to use
+- session deposits require a direct ERC-20 approval to the escrow contract; Permit2 approval does not apply here
+- avoid fee-on-transfer or rebasing tokens because the escrow accounting assumes exact transfer amounts
+- redeploying the escrow changes the channel namespace because `computeChannelId` includes both `block.chainid` and the escrow contract address
 
 ## Funding Constraints
 

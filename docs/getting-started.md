@@ -99,8 +99,12 @@ export SESSION_ESCROW_CLOSE_DELAY=86400
 
 forge script script/DeployMegaMppSessionEscrow.s.sol:DeployMegaMppSessionEscrowScript \
   --rpc-url "$MEGAETH_RPC_URL" \
+  --skip-simulation \
   --broadcast
 ```
+
+> [!IMPORTANT]
+> On MegaETH, Foundry deployments should include `--skip-simulation`. Dry-run simulation is not reliable enough on the MegaETH RPC path for this deployment flow.
 
 Then export the proxy address in the same terminal where you start `pnpm demo:server`:
 
@@ -108,11 +112,23 @@ Then export the proxy address in the same terminal where you start `pnpm demo:se
 export MEGAETH_SESSION_ESCROW_ADDRESS='0xYOUR_ESCROW_PROXY'
 ```
 
+Use the proxy address, not the implementation address.
+
 If you want explorer verification after deployment, export the implementation and proxy addresses plus the verifier URL, then run:
 
 ```bash
 pnpm contracts:verify
 ```
+
+Before you use the deployed escrow in the demo, check these deployment decisions:
+
+- `SESSION_ESCROW_OWNER` can upgrade the UUPS proxy, so use a multisig or dedicated admin account instead of a casual hot wallet.
+- `SESSION_ESCROW_CLOSE_DELAY` controls how soon a payer can withdraw after `requestClose`. `86400` is a reasonable starting point, but shorter values reduce the payee reaction window.
+- `MEGAETH_SESSION_ESCROW_ADDRESS` must be the proxy address. The implementation address will not hold channel state.
+- the demo server recipient and settlement wallet should be the intended payee for the channels you open, because only the payee can call `settle` and `close`
+- session deposits require a direct ERC-20 approval to the escrow contract. Permit2 approval does not cover session deposits.
+- use standard ERC-20 tokens for session deposits. Fee-on-transfer or rebasing tokens can break the deposit and refund assumptions.
+- channel IDs include the chain ID and escrow address, so redeploying the escrow creates a new channel namespace
 
 Approve the escrow contract once from the client wallet for the token deposit:
 

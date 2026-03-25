@@ -182,6 +182,7 @@ For the MegaETH Carrot walkthrough:
 - use testnet USDC at `0x75139a9559c9cd1ad69b7e239c216151d2c81e6f`, not the default USDm example token
 - charge flows require one-time Permit2 approval
 - session flows require a deployed `MegaMppSessionEscrow` plus a direct ERC-20 approval to that escrow contract
+- when you deploy the session escrow with Foundry on MegaETH, add `--skip-simulation` to `forge script`
 
 The full walkthrough lives in [docs/getting-started.md](/Users/m/workspace/mega-mpp-sdk/docs/getting-started.md) and [docs/demo.md](/Users/m/workspace/mega-mpp-sdk/docs/demo.md).
 

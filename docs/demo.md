@@ -82,6 +82,8 @@ Deploy or point the demo at a `MegaMppSessionEscrow` contract, then export:
 export MEGAETH_SESSION_ESCROW_ADDRESS='0xYOUR_ESCROW_PROXY'
 ```
 
+If you deploy that escrow with Foundry on MegaETH, add `--skip-simulation` to the `forge script ... --broadcast` command. Use the proxy address in `MEGAETH_SESSION_ESCROW_ADDRESS`, not the implementation address.
+
 Approve the escrow contract directly from the client wallet:
 
 ```bash
@@ -106,6 +108,13 @@ In the UI:
 4. Use `Top Up` and `Close` to exercise management actions on the same route.
 
 For a pure top-up management action, the demo client now sends `context.action = "topUp"` with `authorizeCurrentRequest: false`.
+
+Operational notes for the deployed escrow:
+
+- the escrow owner can upgrade the proxy, so use a controlled admin account or multisig
+- the close delay is a real product decision because it sets the forced-close withdrawal window
+- the payer must approve the escrow directly; Permit2 approval is separate and only covers charge flows
+- only the configured payee can settle and close channels, so keep the demo server recipient aligned with the settlement wallet you intend to use
 
 ## Cloudflare Worker Quickstart
 
