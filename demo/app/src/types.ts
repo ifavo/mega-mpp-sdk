@@ -3,6 +3,7 @@ export type {
   DemoConfigResponse,
   DemoHealthResponse,
   DemoMode,
+  DemoSubmissionMode,
   ModeStatus,
 } from "../../shared/types.js";
 

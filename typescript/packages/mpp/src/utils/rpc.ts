@@ -10,6 +10,9 @@ import {
   MethodNotFoundRpcError,
   MethodNotSupportedRpcError,
   UnsupportedProviderMethodError,
+  hexToBigInt,
+  hexToNumber,
+  keccak256,
 } from "viem";
 import type {
   Account,
@@ -25,6 +28,7 @@ import { resolveChain } from "./clients.js";
 export type SubmissionMode = "auto" | "sync" | "realtime" | "sendAndWait";
 
 const UNSUPPORTED_METHOD_CODES = new Set([-32601, 4200]);
+const REALTIME_TRANSACTION_EXPIRED_PATTERN = /realtime transaction expired/i;
 
 type SubmitParameters = {
   account: Account;
@@ -129,8 +133,9 @@ async function normalizeSubmissionResult(
     });
   }
 
-  if (isTransactionReceipt(result)) {
-    return result;
+  const receipt = normalizeTransactionReceipt(result);
+  if (receipt) {
+    return receipt;
   }
 
   const hash = getSubmissionHash(result);
@@ -151,8 +156,75 @@ function getSubmissionHash(result: unknown): Hex | undefined {
   return candidate as Hex;
 }
 
-function isTransactionReceipt(result: unknown): result is TransactionReceipt {
-  if (!result || typeof result !== "object") return false;
+function normalizeTransactionReceipt(
+  result: unknown,
+): TransactionReceipt | undefined {
+  if (isViemTransactionReceipt(result)) {
+    return result;
+  }
+
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+
+  const transactionHash = getHexField(result, "transactionHash");
+  const status = normalizeReceiptStatus(Reflect.get(result, "status"));
+  if (!transactionHash || !status) {
+    return undefined;
+  }
+
+  const from = getAddressField(result, "from");
+  const blockHash = getHexField(result, "blockHash");
+  const blockNumber = getHexBigIntField(result, "blockNumber");
+  const cumulativeGasUsed = getHexBigIntField(result, "cumulativeGasUsed");
+  const effectiveGasPrice = getHexBigIntField(result, "effectiveGasPrice");
+  const gasUsed = getHexBigIntField(result, "gasUsed");
+  const logsBloom = getHexField(result, "logsBloom");
+  const transactionIndex = getHexNumberField(result, "transactionIndex");
+  const type = normalizeTransactionType(Reflect.get(result, "type"));
+
+  if (
+    !from ||
+    !blockHash ||
+    blockNumber === undefined ||
+    cumulativeGasUsed === undefined ||
+    effectiveGasPrice === undefined ||
+    gasUsed === undefined ||
+    !logsBloom ||
+    transactionIndex === undefined ||
+    !type
+  ) {
+    return undefined;
+  }
+
+  const logs = Reflect.get(result, "logs");
+  const contractAddress = getNullableAddressField(result, "contractAddress");
+  const to = getNullableAddressField(result, "to");
+
+  return {
+    blockHash,
+    blockNumber,
+    contractAddress,
+    cumulativeGasUsed,
+    effectiveGasPrice,
+    from,
+    gasUsed,
+    logs: Array.isArray(logs) ? (logs as TransactionReceipt["logs"]) : [],
+    logsBloom,
+    status,
+    to,
+    transactionHash,
+    transactionIndex,
+    type,
+  } as TransactionReceipt;
+}
+
+function isViemTransactionReceipt(
+  result: unknown,
+): result is TransactionReceipt {
+  if (!result || typeof result !== "object") {
+    return false;
+  }
 
   const transactionHash = Reflect.get(result, "transactionHash");
   const status = Reflect.get(result, "status");
@@ -172,13 +244,26 @@ async function submitWithRpcMethod(
     params?: readonly unknown[] | undefined;
   }) => Promise<unknown>;
 
-  return await normalizeSubmissionResult(
-    publicClient,
-    await request({
-      method,
-      params: [signedTransaction],
-    }),
-  );
+  try {
+    return await normalizeSubmissionResult(
+      publicClient,
+      await request({
+        method,
+        params: [signedTransaction],
+      }),
+    );
+  } catch (error) {
+    if (
+      method === "realtime_sendRawTransaction" &&
+      isRealtimeTransactionExpiredError(error)
+    ) {
+      return await waitForTransactionReceipt(publicClient, {
+        hash: deriveTransactionHash(signedTransaction),
+      });
+    }
+
+    throw error;
+  }
 }
 
 async function sendRawTransactionAndWait(
@@ -210,6 +295,96 @@ function isUnsupportedMethodError(error: unknown): boolean {
       message,
     ),
   );
+}
+
+function isRealtimeTransactionExpiredError(error: unknown): boolean {
+  return getErrorMessages(error).some((message) =>
+    REALTIME_TRANSACTION_EXPIRED_PATTERN.test(message),
+  );
+}
+
+function deriveTransactionHash(signedTransaction: Hex): Hex {
+  return keccak256(signedTransaction);
+}
+
+function getAddressField(result: object, key: "from"): Address | undefined {
+  const value = Reflect.get(result, key);
+  return typeof value === "string" ? (value as Address) : undefined;
+}
+
+function getNullableAddressField(
+  result: object,
+  key: "contractAddress" | "to",
+): Address | null {
+  const value = Reflect.get(result, key);
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return typeof value === "string" ? (value as Address) : null;
+}
+
+function getHexField(result: object, key: string): Hex | undefined {
+  const value = Reflect.get(result, key);
+  return typeof value === "string" ? (value as Hex) : undefined;
+}
+
+function getHexBigIntField(result: object, key: string): bigint | undefined {
+  const value = getHexField(result, key);
+  if (!value) {
+    return undefined;
+  }
+
+  return hexToBigInt(value);
+}
+
+function getHexNumberField(result: object, key: string): number | undefined {
+  const value = getHexField(result, key);
+  if (!value) {
+    return undefined;
+  }
+
+  return hexToNumber(value);
+}
+
+function normalizeReceiptStatus(
+  status: unknown,
+): TransactionReceipt["status"] | undefined {
+  if (status === "success" || status === "reverted") {
+    return status;
+  }
+
+  if (status === "0x1") {
+    return "success";
+  }
+
+  if (status === "0x0") {
+    return "reverted";
+  }
+
+  return undefined;
+}
+
+function normalizeTransactionType(
+  value: unknown,
+): TransactionReceipt["type"] | undefined {
+  if (
+    value === "legacy" ||
+    value === "eip2930" ||
+    value === "eip1559" ||
+    value === "eip4844" ||
+    value === "eip7702"
+  ) {
+    return value;
+  }
+
+  if (value === "0x0") return "legacy";
+  if (value === "0x1") return "eip2930";
+  if (value === "0x2") return "eip1559";
+  if (value === "0x3") return "eip4844";
+  if (value === "0x4") return "eip7702";
+
+  return undefined;
 }
 
 function getErrorCode(error: unknown): number | undefined {

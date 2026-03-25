@@ -1,6 +1,9 @@
+import type { SubmissionMode } from "../../typescript/packages/mpp/src/utils/rpc.js";
+
 export type DemoAddress = `0x${string}`;
 
 export type DemoMode = "permit2" | "hash";
+export type DemoSubmissionMode = SubmissionMode;
 
 export type DemoEndpointId = "basic" | "splits";
 
@@ -29,6 +32,7 @@ export type DemoConfig = {
   permit2Address: DemoAddress;
   recipient?: DemoAddress | undefined;
   rpcUrl: string;
+  submissionMode: DemoSubmissionMode;
   splitAmount: string;
   splitRecipient?: DemoAddress | undefined;
   testnet: boolean;

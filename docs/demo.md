@@ -40,6 +40,7 @@ export MEGAETH_TESTNET=true
 export MEGAETH_RPC_URL=https://carrot.megaeth.com/rpc
 export MEGAETH_TOKEN_ADDRESS=0x75139a9559c9cd1ad69b7e239c216151d2c81e6f
 export MEGAETH_PERMIT2_ADDRESS=0x000000000022D473030F116dDEE9F6B43aC78BA3
+export MEGAETH_SUBMISSION_MODE=realtime
 export MEGAETH_SETTLEMENT_PRIVATE_KEY='YOUR_SERVER_PRIVATE_KEY'
 export MEGAETH_FEE_PAYER=true
 ```
@@ -62,7 +63,7 @@ pnpm demo:worker:build
 pnpm demo:worker:dev
 ```
 
-The Worker defaults to MegaETH testnet, Carrot RPC, and testnet USDC through [wrangler.jsonc](/Users/m/workspace/mega-mpp-sdk/demo/worker/wrangler.jsonc). It still starts without secrets so config and health can describe missing setup before the paid endpoints are usable.
+The Worker defaults to MegaETH testnet, Carrot RPC, realtime submission mode, and testnet USDC through [wrangler.jsonc](/Users/m/workspace/mega-mpp-sdk/demo/worker/wrangler.jsonc). It still starts without secrets so config and health can describe missing setup before the paid endpoints are usable.
 
 Set the required Worker secrets before running a funded flow:
 
@@ -79,6 +80,7 @@ Optional Worker secrets or vars:
 - `MEGAETH_SPLIT_AMOUNT`
 - `MEGAETH_FEE_PAYER`
 - `MEGAETH_PERMIT2_ADDRESS`
+- `MEGAETH_SUBMISSION_MODE`
 - `MEGAETH_TOKEN_SYMBOL`
 - `MEGAETH_TOKEN_DECIMALS`
 
@@ -133,6 +135,7 @@ The demo server reads these variables when you want to connect to a real MegaETH
 - `MEGAETH_TOKEN_SYMBOL`
 - `MEGAETH_TOKEN_DECIMALS`
 - `MEGAETH_PERMIT2_ADDRESS`
+- `MEGAETH_SUBMISSION_MODE`
 - `MEGAETH_SETTLEMENT_PRIVATE_KEY`
 - `MEGAETH_RECIPIENT_ADDRESS`
 - `MEGAETH_SPLIT_RECIPIENT`
@@ -146,6 +149,8 @@ Mode-specific prerequisites:
 - `hash`: `MPP_SECRET_KEY` and either `MEGAETH_RECIPIENT_ADDRESS` or `MEGAETH_SETTLEMENT_PRIVATE_KEY`
 
 If those variables are missing, the demo still starts and exposes health and config payloads that explain exactly what to configure before the selected mode can settle.
+
+`MEGAETH_SUBMISSION_MODE` reuses the SDK's existing `submissionMode` setting. The demo defaults it to `realtime` so both the server-broadcast flow and the client-broadcast flow can showcase MegaETH's mini-block receipt path when the signer supports raw transaction signing.
 
 `MEGAETH_TOKEN_SYMBOL` and `MEGAETH_TOKEN_DECIMALS` are optional. The demo auto-detects the built-in USDm example token and the documented Carrot testnet USDC address, and these overrides are only needed when you point the demo at a different token and want the UI cost display to stay accurate.
 

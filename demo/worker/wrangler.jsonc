@@ -7,25 +7,26 @@
     "binding": "ASSETS",
     "directory": "../app/dist",
     "not_found_handling": "single-page-application",
-    "run_worker_first": true
+    "run_worker_first": true,
   },
   "durable_objects": {
     "bindings": [
       {
         "name": "DEMO_STORE",
-        "class_name": "DemoStoreDurableObject"
-      }
-    ]
+        "class_name": "DemoStoreDurableObject",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["DemoStoreDurableObject"]
-    }
+      "new_sqlite_classes": ["DemoStoreDurableObject"],
+    },
   ],
   "vars": {
     "MEGAETH_TESTNET": "true",
     "MEGAETH_RPC_URL": "https://carrot.megaeth.com/rpc",
-    "MEGAETH_TOKEN_ADDRESS": "0x75139a9559c9cd1ad69b7e239c216151d2c81e6f"
-  }
+    "MEGAETH_SUBMISSION_MODE": "realtime",
+    "MEGAETH_TOKEN_ADDRESS": "0x75139a9559c9cd1ad69b7e239c216151d2c81e6f",
+  },
 }
