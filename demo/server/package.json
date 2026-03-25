@@ -1,0 +1,21 @@
+{
+  "name": "mega-mpp-demo-server",
+  "license": "Unlicense",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm typecheck",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@types/node": "^24.10.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "viem": "^2.47.6"
+  }
+}

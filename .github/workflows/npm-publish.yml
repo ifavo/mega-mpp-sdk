@@ -1,0 +1,49 @@
+name: Publish Package
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: |
+            typescript/pnpm-lock.yaml
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Install dependencies
+        run: pnpm --dir typescript install --frozen-lockfile
+
+      - name: Verify package
+        run: |
+          pnpm --dir typescript typecheck
+          pnpm --dir typescript test:all
+          pnpm --dir typescript build
+          test -f typescript/packages/mpp/dist/index.js
+
+      - name: Inspect packed package contents
+        run: |
+          mkdir -p package-artifacts
+          PACK_FILE=$(pnpm --dir typescript/packages/mpp pack --pack-destination package-artifacts --json | node -e "const fs = require('node:fs'); const payload = JSON.parse(fs.readFileSync(0, 'utf8')); process.stdout.write(payload.filename);")
+          tar -tf "${PACK_FILE}" | grep '^package/dist/index.js$'
+          tar -tf "${PACK_FILE}" | grep '^package/dist/client/index.js$'
+          tar -tf "${PACK_FILE}" | grep '^package/dist/server/index.js$'
+
+      - name: Publish
+        run: pnpm --dir typescript/packages/mpp publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

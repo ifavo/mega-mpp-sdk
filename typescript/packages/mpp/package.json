@@ -1,0 +1,40 @@
+{
+  "name": "mega-mpp-sdk",
+  "version": "0.1.0",
+  "description": "MegaETH payment method for the Machine Payments Protocol.",
+  "license": "Unlicense",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/ifavo/mega-mpp-sdk.git",
+    "directory": "typescript/packages/mpp"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/**/*.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@uniswap/permit2-sdk": "^1.4.0",
+    "mppx": "^0.4.9",
+    "tslib": "^2.8.1",
+    "viem": "^2.47.6"
+  }
+}

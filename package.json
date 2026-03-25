@@ -1,0 +1,17 @@
+{
+  "name": "mega-mpp-sdk",
+  "license": "Unlicense",
+  "private": true,
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "build": "pnpm --dir typescript build",
+    "demo:install": "pnpm --dir demo/app install && pnpm --dir demo/server install",
+    "demo:app": "pnpm --dir demo/app dev",
+    "demo:server": "pnpm --dir demo/server dev",
+    "demo:build": "pnpm --dir demo/app build && pnpm --dir demo/server build",
+    "lint": "pnpm --dir typescript lint && pnpm --dir typescript format:check",
+    "test": "pnpm --dir typescript test:all",
+    "test:live": "pnpm --dir typescript test:live",
+    "typecheck": "pnpm --dir typescript typecheck"
+  }
+}

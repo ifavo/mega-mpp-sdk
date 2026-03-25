@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.env.local
+node_modules
+dist
+coverage
+.turbo
+*.log
+demo/app/node_modules
+demo/app/dist
+demo/server/node_modules
+demo/server/dist
+typescript/node_modules
+typescript/packages/mpp/dist
+typescript/.vitest
+typescript/.tmp
