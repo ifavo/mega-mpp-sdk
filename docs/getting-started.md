@@ -71,14 +71,14 @@ cast send "$MEGAETH_TOKEN_ADDRESS" \
   --rpc-url "$MEGAETH_RPC_URL"
 ```
 
-After both processes are running, open `http://localhost:5173`, connect the client wallet, confirm the displayed cost in the `Run Payment` panel, select `Server settles Permit2`, and run the `Direct MegaETH charge demo` endpoint.
+After both processes are running, open `http://localhost:5173`, connect the client wallet, confirm the displayed cost in the `Request Paid Resource` panel, select `Server broadcasts Permit2 transaction`, and run the `Direct MegaETH charge demo` endpoint.
 
 ## Local Deterministic Flow
 
 The repository ships an Anvil-backed integration suite with a mock ERC-20 and mock Permit2 contract. That suite covers:
 
 - direct Permit2 settlement
-- broadcast `hash` settlement
+- client-broadcast transaction-hash credential settlement
 - split payments
 - challenge replay protection
 - RFC 9457 problem-details mapping with instructive failure messages
@@ -94,7 +94,7 @@ pnpm --dir typescript test:integration
 Funded flows need a payer wallet with both token balance and Permit2 approval. Complete this once per token and payer wallet:
 
 1. Bridge or mint the payment token into the payer wallet.
-2. Fund the payer wallet with ETH for MegaETH gas when you plan to use `hash` mode.
+2. Fund the payer wallet with ETH for MegaETH gas when you plan to use `credentialMode: 'hash'`.
 3. Approve Permit2 at `0x000000000022D473030F116dDEE9F6B43aC78BA3` for at least the amount you will test.
 4. Re-run the paid flow after the approval transaction confirms.
 
@@ -110,7 +110,7 @@ pnpm --dir typescript test:live
 
 ### Readonly Live Checks
 
-Readonly checks verify RPC reachability, deployed bytecode at Permit2 and token addresses, token read calls, and optional `eth_sendRawTransactionSync` detection.
+Readonly checks verify RPC reachability, deployed bytecode at Permit2 and token addresses, token read calls, and the configured submission mode.
 
 Required environment variables:
 
@@ -122,11 +122,11 @@ Optional environment variables:
 - `MEGAETH_TESTNET=true|false`
 - `MEGAETH_PERMIT2_ADDRESS`
 - `MEGAETH_TOKEN_ADDRESS`
-- `MEGAETH_EXPECT_SYNC_RPC=true`
+- `MEGAETH_SUBMISSION_MODE=auto|sync|realtime|sendAndWait`
 
 ### Funded Live Checks
 
-Funded checks perform one live `hash`-mode payment end to end, then verify the recipient token balance increased by the requested amount.
+Funded checks perform one live transaction-hash credential payment end to end, then verify the recipient token balance increased by the requested amount.
 
 Additional required environment variables:
 
@@ -147,5 +147,6 @@ Before running funded live checks, make sure the payer wallet has:
 
 - Direct settlement signs the challenge `recipient` as the spender because PR 205 does not yet expose a separate spender field.
 - Split payments use a batch Permit2 extension in the SDK implementation when more than one transfer leg is needed.
-- The SDK normalizes MegaETH RPC submission responses so it can work with both synchronous receipts and hash-based fallbacks.
+- The SDK requires each charge flow to resolve `chainId` explicitly from either `methodDetails.chainId` or `methodDetails.testnet`.
+- `submissionMode` defaults to `auto`, and auto mode only downgrades when the active RPC or wallet reports that the current submission method is unsupported.
 - Receipt serialization stays aligned with `mppx`. `challengeId` remains part of verification context and problem details, but not the serialized `Payment-Receipt` header.

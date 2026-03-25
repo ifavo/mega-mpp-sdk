@@ -24,6 +24,11 @@ import * as SharedMethods from "../Methods.js";
 import { megaethTestnet } from "../constants.js";
 import { charge as clientCharge } from "../client/Charge.js";
 import { charge as serverCharge } from "../server/Charge.js";
+import {
+  capturePaymentError,
+  type ChargeCredential,
+  deserializeChargeCredential,
+} from "./fixtures/chargeTestkit.js";
 import { compileMockContracts } from "./fixtures/mockContracts.js";
 
 type ChargeChallenge = Challenge.Challenge<
@@ -32,12 +37,14 @@ type ChargeChallenge = Challenge.Challenge<
   typeof SharedMethods.charge.name
 >;
 
-type ChargeCredential = Credential.Credential<
-  SharedMethods.ChargeCredentialPayload,
-  ChargeChallenge
->;
+type LocalWalletClient = ReturnType<typeof createWalletClient> & {
+  account: NonNullable<ReturnType<typeof createWalletClient>["account"]>;
+};
+
+type MockContracts = ReturnType<typeof compileMockContracts>;
 
 type TestContext = {
+  contracts: MockContracts;
   permit2Address: Address;
   publicClient: PublicClient;
   rpcUrl: string;
@@ -45,10 +52,10 @@ type TestContext = {
   store: Store.Store;
   tokenAddress: Address;
   wallets: {
-    deployer: ReturnType<typeof createWalletClient>;
-    payer: ReturnType<typeof createWalletClient>;
-    recipient: ReturnType<typeof createWalletClient>;
-    split: ReturnType<typeof createWalletClient>;
+    deployer: LocalWalletClient;
+    payer: LocalWalletClient;
+    recipient: LocalWalletClient;
+    split: LocalWalletClient;
   };
 };
 
@@ -73,33 +80,17 @@ describe("megaeth charge integration", () => {
 
     await waitForRpc(publicClient);
 
-    const deployer = createWalletClient({
-      account: mnemonicToAccount(TEST_MNEMONIC, { addressIndex: 0 }),
-      chain: megaethTestnet,
-      transport: http(rpcUrl),
-    });
-    const payer = createWalletClient({
-      account: mnemonicToAccount(TEST_MNEMONIC, { addressIndex: 1 }),
-      chain: megaethTestnet,
-      transport: http(rpcUrl),
-    });
-    const recipient = createWalletClient({
-      account: mnemonicToAccount(TEST_MNEMONIC, { addressIndex: 2 }),
-      chain: megaethTestnet,
-      transport: http(rpcUrl),
-    });
-    const split = createWalletClient({
-      account: mnemonicToAccount(TEST_MNEMONIC, { addressIndex: 3 }),
-      chain: megaethTestnet,
-      transport: http(rpcUrl),
-    });
+    const deployer = createMnemonicWalletClient(rpcUrl, 0);
+    const payer = createMnemonicWalletClient(rpcUrl, 1);
+    const recipient = createMnemonicWalletClient(rpcUrl, 2);
+    const split = createMnemonicWalletClient(rpcUrl, 3);
 
-    const { mockErc20, mockPermit2 } = compileMockContracts();
+    const contracts = compileMockContracts();
     const tokenHash = await deployContract(deployer, {
-      abi: mockErc20.abi,
+      abi: contracts.mockErc20.abi,
       account: deployer.account,
       args: ["Mock USDm", "USDm", 18],
-      bytecode: mockErc20.bytecode,
+      bytecode: contracts.mockErc20.bytecode,
       chain: megaethTestnet,
     });
     const tokenReceipt = await waitForTransactionReceipt(publicClient, {
@@ -108,9 +99,9 @@ describe("megaeth charge integration", () => {
     const tokenAddress = tokenReceipt.contractAddress;
 
     const permit2Hash = await deployContract(deployer, {
-      abi: mockPermit2.abi,
+      abi: contracts.mockPermit2.abi,
       account: deployer.account,
-      bytecode: mockPermit2.bytecode,
+      bytecode: contracts.mockPermit2.bytecode,
       chain: megaethTestnet,
     });
     const permit2Receipt = await waitForTransactionReceipt(publicClient, {
@@ -118,14 +109,7 @@ describe("megaeth charge integration", () => {
     });
     const permit2Address = permit2Receipt.contractAddress;
 
-    if (
-      !tokenAddress ||
-      !permit2Address ||
-      !deployer.account ||
-      !payer.account ||
-      !recipient.account ||
-      !split.account
-    ) {
+    if (!tokenAddress || !permit2Address) {
       throw new Error(
         "Deploy the mock contracts and accounts successfully before running the integration suite.",
       );
@@ -133,7 +117,7 @@ describe("megaeth charge integration", () => {
 
     await waitForTransactionReceipt(publicClient, {
       hash: await writeContract(deployer, {
-        abi: mockErc20.abi,
+        abi: contracts.mockErc20.abi,
         account: deployer.account,
         address: tokenAddress,
         args: [payer.account.address, 10_000n],
@@ -144,7 +128,7 @@ describe("megaeth charge integration", () => {
 
     await waitForTransactionReceipt(publicClient, {
       hash: await writeContract(payer, {
-        abi: mockErc20.abi,
+        abi: contracts.mockErc20.abi,
         account: payer.account,
         address: tokenAddress,
         args: [permit2Address, 10_000n],
@@ -154,6 +138,7 @@ describe("megaeth charge integration", () => {
     });
 
     testContext = {
+      contracts,
       permit2Address,
       publicClient,
       rpcUrl,
@@ -193,34 +178,13 @@ describe("megaeth charge integration", () => {
 
   it("settles a direct Permit2 credential and prevents challenge replay", async () => {
     const context = requireTestContext();
-    const { payer, recipient } = context.wallets;
-    if (!payer.account || !recipient.account) {
-      throw new Error(
-        "Attach test accounts to the local wallet clients before running this integration test.",
-      );
-    }
-
-    const clientMethod = clientCharge({
-      account: payer.account,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      walletClient: payer,
-    });
-    const serverMethod = serverCharge({
-      account: recipient.account,
-      chainId: megaethTestnet.id,
-      currency: context.tokenAddress,
-      permit2Address: context.permit2Address,
-      recipient: recipient.account.address,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      store: context.store,
-      testnet: true,
-      walletClient: recipient,
-    });
+    const clientMethod = createIntegrationClientMethod(context);
+    const serverMethod = createIntegrationServerMethod(context);
 
     const challenge = await issueChallenge(
       serverMethod,
       context.tokenAddress,
-      recipient.account.address,
+      context.wallets.recipient.account.address,
       {
         chainId: megaethTestnet.id,
         permit2Address: context.permit2Address,
@@ -239,10 +203,10 @@ describe("megaeth charge integration", () => {
     });
 
     const recipientBalance = await readContract(context.publicClient, {
-      abi: compileMockContracts().mockErc20.abi,
+      abi: context.contracts.mockErc20.abi,
       address: context.tokenAddress,
       functionName: "balanceOf",
-      args: [recipient.account.address],
+      args: [context.wallets.recipient.account.address],
     });
 
     expect(receipt.reference).toMatch(/^0x[a-fA-F0-9]{64}$/);
@@ -265,35 +229,22 @@ describe("megaeth charge integration", () => {
     expect(replayError.message).toMatch(/fresh payment challenge/i);
   });
 
-  it("verifies a hash credential after the payer broadcasts the Permit2 transaction", async () => {
+  it("verifies a transaction-hash credential after the payer broadcasts the Permit2 transaction", async () => {
     const context = requireTestContext();
-    const { payer, recipient } = context.wallets;
-    if (!payer.account || !recipient.account) {
-      throw new Error(
-        "Attach test accounts to the local wallet clients before running this integration test.",
-      );
-    }
-
-    const clientMethod = clientCharge({
-      account: payer.account,
-      broadcast: true,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      walletClient: payer,
+    const clientMethod = createIntegrationClientMethod(context, {
+      credentialMode: "hash",
     });
-    const serverMethod = serverCharge({
-      chainId: megaethTestnet.id,
-      currency: context.tokenAddress,
-      permit2Address: context.permit2Address,
+    const serverMethod = createIntegrationServerMethod(context, {
+      account: undefined,
       publicClient: context.publicClient,
-      recipient: recipient.account.address,
-      store: context.store,
-      testnet: true,
+      rpcUrls: undefined,
+      walletClient: undefined,
     });
 
     const challenge = await issueChallenge(
       serverMethod,
       context.tokenAddress,
-      recipient.account.address,
+      context.wallets.recipient.account.address,
       {
         chainId: megaethTestnet.id,
         permit2Address: context.permit2Address,
@@ -327,10 +278,10 @@ describe("megaeth charge integration", () => {
     });
 
     const recipientBalance = await readContract(context.publicClient, {
-      abi: compileMockContracts().mockErc20.abi,
+      abi: context.contracts.mockErc20.abi,
       address: context.tokenAddress,
       functionName: "balanceOf",
-      args: [recipient.account.address],
+      args: [context.wallets.recipient.account.address],
     });
 
     expect(receipt.reference).toBe(
@@ -341,25 +292,8 @@ describe("megaeth charge integration", () => {
 
   it("settles split payments with the draft batch Permit2 extension", async () => {
     const context = requireTestContext();
-    const { payer, recipient } = context.wallets;
-    if (!payer.account || !recipient.account) {
-      throw new Error(
-        "Attach test accounts to the local wallet clients before running this integration test.",
-      );
-    }
-
-    const clientMethod = clientCharge({
-      account: payer.account,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      walletClient: payer,
-    });
-    const serverMethod = serverCharge({
-      account: recipient.account,
-      chainId: megaethTestnet.id,
-      currency: context.tokenAddress,
-      permit2Address: context.permit2Address,
-      recipient: recipient.account.address,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
+    const clientMethod = createIntegrationClientMethod(context);
+    const serverMethod = createIntegrationServerMethod(context, {
       splits: [
         {
           amount: "100",
@@ -367,15 +301,12 @@ describe("megaeth charge integration", () => {
           recipient: context.splitAddress,
         },
       ],
-      store: context.store,
-      testnet: true,
-      walletClient: recipient,
     });
 
     const challenge = await issueChallenge(
       serverMethod,
       context.tokenAddress,
-      recipient.account.address,
+      context.wallets.recipient.account.address,
       {
         chainId: megaethTestnet.id,
         permit2Address: context.permit2Address,
@@ -402,13 +333,13 @@ describe("megaeth charge integration", () => {
 
     const [recipientBalance, splitBalance] = await Promise.all([
       readContract(context.publicClient, {
-        abi: compileMockContracts().mockErc20.abi,
+        abi: context.contracts.mockErc20.abi,
         address: context.tokenAddress,
         functionName: "balanceOf",
-        args: [recipient.account.address],
+        args: [context.wallets.recipient.account.address],
       }),
       readContract(context.publicClient, {
-        abi: compileMockContracts().mockErc20.abi,
+        abi: context.contracts.mockErc20.abi,
         address: context.tokenAddress,
         functionName: "balanceOf",
         args: [context.splitAddress],
@@ -422,34 +353,13 @@ describe("megaeth charge integration", () => {
 
   it("rejects a mutated payload that changes the requested amount", async () => {
     const context = requireTestContext();
-    const { payer, recipient } = context.wallets;
-    if (!payer.account || !recipient.account) {
-      throw new Error(
-        "Attach test accounts to the local wallet clients before running this integration test.",
-      );
-    }
-
-    const clientMethod = clientCharge({
-      account: payer.account,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      walletClient: payer,
-    });
-    const serverMethod = serverCharge({
-      account: recipient.account,
-      chainId: megaethTestnet.id,
-      currency: context.tokenAddress,
-      permit2Address: context.permit2Address,
-      recipient: recipient.account.address,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      store: context.store,
-      testnet: true,
-      walletClient: recipient,
-    });
+    const clientMethod = createIntegrationClientMethod(context);
+    const serverMethod = createIntegrationServerMethod(context);
 
     const challenge = await issueChallenge(
       serverMethod,
       context.tokenAddress,
-      recipient.account.address,
+      context.wallets.recipient.account.address,
       {
         chainId: megaethTestnet.id,
         permit2Address: context.permit2Address,
@@ -489,38 +399,19 @@ describe("megaeth charge integration", () => {
     expect(verificationError.message).toMatch(/requested token and amount/i);
   });
 
-  it("guides the client to disable broadcast mode when the server sponsors gas", async () => {
+  it('guides the client to use credentialMode "permit2" when the server sponsors gas', async () => {
     const context = requireTestContext();
-    const { payer, recipient } = context.wallets;
-    if (!payer.account || !recipient.account) {
-      throw new Error(
-        "Attach test accounts to the local wallet clients before running this integration test.",
-      );
-    }
-
-    const clientMethod = clientCharge({
-      account: payer.account,
-      broadcast: true,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      walletClient: payer,
+    const clientMethod = createIntegrationClientMethod(context, {
+      credentialMode: "hash",
     });
-    const serverMethod = serverCharge({
-      account: recipient.account,
-      chainId: megaethTestnet.id,
-      currency: context.tokenAddress,
+    const serverMethod = createIntegrationServerMethod(context, {
       feePayer: true,
-      permit2Address: context.permit2Address,
-      recipient: recipient.account.address,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      store: context.store,
-      testnet: true,
-      walletClient: recipient,
     });
 
     const challenge = await issueChallenge(
       serverMethod,
       context.tokenAddress,
-      recipient.account.address,
+      context.wallets.recipient.account.address,
       {
         chainId: megaethTestnet.id,
         feePayer: true,
@@ -530,23 +421,15 @@ describe("megaeth charge integration", () => {
 
     await expect(
       clientMethod.createCredential({ challenge }),
-    ).rejects.toThrowError(/disable broadcast mode/i);
+    ).rejects.toThrowError(/credentialmode "permit2"/i);
   });
 
   it("returns a structured payment-insufficient error when Permit2 approval is missing", async () => {
     const context = requireTestContext();
-    const { payer, recipient } = context.wallets;
-    if (!payer.account || !recipient.account) {
-      throw new Error(
-        "Attach test accounts to the local wallet clients before running this integration test.",
-      );
-    }
-
-    const contracts = compileMockContracts();
     await waitForTransactionReceipt(context.publicClient, {
-      hash: await writeContract(payer, {
-        abi: contracts.mockErc20.abi,
-        account: payer.account,
+      hash: await writeContract(context.wallets.payer, {
+        abi: context.contracts.mockErc20.abi,
+        account: context.wallets.payer.account,
         address: context.tokenAddress,
         args: [context.permit2Address, 0n],
         chain: megaethTestnet,
@@ -554,27 +437,13 @@ describe("megaeth charge integration", () => {
       }),
     });
 
-    const clientMethod = clientCharge({
-      account: payer.account,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      walletClient: payer,
-    });
-    const serverMethod = serverCharge({
-      account: recipient.account,
-      chainId: megaethTestnet.id,
-      currency: context.tokenAddress,
-      permit2Address: context.permit2Address,
-      recipient: recipient.account.address,
-      rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
-      store: context.store,
-      testnet: true,
-      walletClient: recipient,
-    });
+    const clientMethod = createIntegrationClientMethod(context);
+    const serverMethod = createIntegrationServerMethod(context);
 
     const challenge = await issueChallenge(
       serverMethod,
       context.tokenAddress,
-      recipient.account.address,
+      context.wallets.recipient.account.address,
       {
         chainId: megaethTestnet.id,
         permit2Address: context.permit2Address,
@@ -601,12 +470,6 @@ describe("megaeth charge integration", () => {
     expect(insufficientError.message).toMatch(/approve permit2/i);
   });
 });
-
-function deserializeChargeCredential(serialized: string): ChargeCredential {
-  return Credential.deserialize<SharedMethods.ChargeCredentialPayload>(
-    serialized,
-  ) as ChargeCredential;
-}
 
 async function getFreePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
@@ -642,6 +505,55 @@ function requireTestContext(): TestContext {
   }
 
   return testContext;
+}
+
+function createMnemonicWalletClient(
+  rpcUrl: string,
+  addressIndex: number,
+): LocalWalletClient {
+  const walletClient = createWalletClient({
+    account: mnemonicToAccount(TEST_MNEMONIC, { addressIndex }),
+    chain: megaethTestnet,
+    transport: http(rpcUrl),
+  });
+
+  if (!walletClient.account) {
+    throw new Error(
+      "Attach test accounts to the local wallet clients before running the integration suite.",
+    );
+  }
+
+  return walletClient as LocalWalletClient;
+}
+
+function createIntegrationClientMethod(
+  context: TestContext,
+  overrides?: Partial<Parameters<typeof clientCharge>[0]>,
+) {
+  return clientCharge({
+    account: context.wallets.payer.account,
+    rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
+    walletClient: context.wallets.payer,
+    ...overrides,
+  });
+}
+
+function createIntegrationServerMethod(
+  context: TestContext,
+  overrides?: Partial<Parameters<typeof serverCharge>[0]>,
+) {
+  return serverCharge({
+    account: context.wallets.recipient.account,
+    chainId: megaethTestnet.id,
+    currency: context.tokenAddress,
+    permit2Address: context.permit2Address,
+    recipient: context.wallets.recipient.account.address,
+    rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
+    store: context.store,
+    testnet: true,
+    walletClient: context.wallets.recipient,
+    ...overrides,
+  });
 }
 
 async function issueChallenge(
@@ -685,24 +597,6 @@ async function rpcRequest<value>(
   }) => Promise<unknown>;
 
   return (await request({ method, params })) as value;
-}
-
-async function capturePaymentError(
-  promise: Promise<unknown>,
-): Promise<Errors.PaymentError> {
-  try {
-    await promise;
-  } catch (error) {
-    if (error instanceof Errors.PaymentError) {
-      return error;
-    }
-
-    throw error;
-  }
-
-  throw new Error(
-    "Reject the MegaETH payment request before asserting its structured error.",
-  );
 }
 
 async function startAnvil(port: number): Promise<ChildProcess> {

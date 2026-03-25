@@ -13,7 +13,7 @@ import {
 } from "viem";
 
 import { ERC20_ABI } from "../abi.js";
-import { PERMIT2_ADDRESS } from "../constants.js";
+import { MEGAETH_TESTNET_CHAIN_ID, PERMIT2_ADDRESS } from "../constants.js";
 import * as Methods from "../Methods.js";
 import {
   resolveAccount,
@@ -27,9 +27,12 @@ import {
   decodePermit2Transaction,
   encodePermit2Calldata,
   getPermit2Address,
+  Permit2PayloadError,
+  Permit2ValidationError,
+  Permit2VerificationError,
   recoverPermitOwner,
 } from "../utils/permit2.js";
-import { submitTransaction } from "../utils/rpc.js";
+import { submitTransaction, type SubmissionMode } from "../utils/rpc.js";
 import { parseDidPkhSource } from "../utils/source.js";
 
 export function charge(
@@ -55,9 +58,7 @@ export function charge(
 
   return Method.toServer(Methods.charge, {
     defaults: {
-      currency: (currency ?? parameters.currency ?? "") as Address,
       methodDetails: {},
-      recipient: recipient as Address,
     },
 
     async request({ credential, request }) {
@@ -65,21 +66,29 @@ export function charge(
         return credential.challenge.request as typeof request;
       }
 
-      const chainId = resolveChainId({
+      const chainId = resolveRequestChainId({
         chainId: request.methodDetails.chainId ?? parameters.chainId,
         testnet: request.methodDetails.testnet ?? parameters.testnet,
+      });
+      const resolvedCurrency = resolveRequestAddress({
+        configured: currency,
+        label: "a currency address",
+        value: request.currency as Address | undefined,
+      });
+      const resolvedRecipient = resolveRequestAddress({
+        configured: recipient,
+        label: "a recipient address",
+        value: request.recipient as Address | undefined,
       });
 
       return {
         ...request,
-        currency: (request.currency || currency) as Address,
-        recipient: (request.recipient || recipient) as Address,
+        currency: resolvedCurrency,
+        recipient: resolvedRecipient,
         methodDetails: {
           ...request.methodDetails,
           chainId,
-          ...(chainId === parameters.chainId && parameters.testnet
-            ? { testnet: true }
-            : {}),
+          ...(chainId === MEGAETH_TESTNET_CHAIN_ID ? { testnet: true } : {}),
           ...(parameters.feePayer !== undefined
             ? { feePayer: parameters.feePayer }
             : {}),
@@ -93,7 +102,7 @@ export function charge(
     async verify({ credential }) {
       const challenge = credential.challenge.request;
       const challengeId = credential.challenge.id;
-      const chainId = resolveChainId(challenge.methodDetails);
+      const chainId = resolveCredentialChainId(challenge.methodDetails);
       const publicClient = await resolvePublicClient(parameters, chainId);
 
       if (
@@ -105,29 +114,49 @@ export function charge(
         });
       }
 
-      if (credential.payload.type === "hash") {
-        return await verifyHashCredential({
+      try {
+        if (credential.payload.type === "hash") {
+          return await verifyHashCredential({
+            chainId,
+            challenge,
+            challengeId,
+            hash: credential.payload.hash as `0x${string}`,
+            publicClient,
+            source: credential.source,
+            store,
+          });
+        }
+
+        return await verifyPermitCredential({
+          account,
           chainId,
           challenge,
           challengeId,
-          hash: credential.payload.hash as `0x${string}`,
+          payload: credential.payload,
           publicClient,
           source: credential.source,
           store,
+          submissionMode: parameters.submissionMode,
+          walletClientResolver: parameters,
         });
-      }
+      } catch (error) {
+        if (error instanceof Errors.PaymentError) {
+          throw error;
+        }
 
-      return await verifyPermitCredential({
-        account,
-        chainId,
-        challenge,
-        challengeId,
-        payload: credential.payload,
-        publicClient,
-        source: credential.source,
-        store,
-        walletClientResolver: parameters,
-      });
+        if (error instanceof Permit2PayloadError) {
+          throw invalidPayload(error.message);
+        }
+
+        if (
+          error instanceof Permit2ValidationError ||
+          error instanceof Permit2VerificationError
+        ) {
+          throw verificationFailed(error.message);
+        }
+
+        throw error;
+      }
     },
   });
 }
@@ -176,10 +205,10 @@ async function verifyHashCredential(parameters: {
     );
   }
 
-  const decoded = decodeCredentialTransaction(transaction.input);
-  assertPayloadMatchesChallenge(decoded.payload, challenge);
+  const decoded = decodePermit2Transaction(transaction.input);
+  assertPermitPayloadMatchesRequest(decoded.payload, challenge);
 
-  const owner = await recoverOwner({
+  const owner = await recoverPermitOwner({
     chainId,
     payload: decoded.payload,
     permit2Address: getPermit2Address(challenge),
@@ -214,6 +243,7 @@ async function verifyPermitCredential(parameters: {
   source?: string | undefined;
   store: Store.Store;
   walletClientResolver: WalletClientResolver;
+  submissionMode?: SubmissionMode | undefined;
 }) {
   const {
     account,
@@ -224,6 +254,7 @@ async function verifyPermitCredential(parameters: {
     publicClient,
     source,
     store,
+    submissionMode,
     walletClientResolver,
   } = parameters;
   await assertChallengeAvailable(store, challengeId);
@@ -239,7 +270,7 @@ async function verifyPermitCredential(parameters: {
   }
 
   const permit2Address = getPermit2Address(challenge);
-  const plan = assertPayloadMatchesChallenge(payload, challenge);
+  const plan = assertPermitPayloadMatchesRequest(payload, challenge);
 
   if (BigInt(payload.permit.deadline) < BigInt(Math.floor(Date.now() / 1000))) {
     throw verificationFailed(
@@ -247,7 +278,7 @@ async function verifyPermitCredential(parameters: {
     );
   }
 
-  const owner = await recoverOwner({
+  const owner = await recoverPermitOwner({
     chainId,
     payload,
     permit2Address,
@@ -273,6 +304,7 @@ async function verifyPermitCredential(parameters: {
     chainId,
     data: calldata,
     publicClient,
+    submissionMode,
     to: permit2Address,
     walletClient,
   });
@@ -372,38 +404,6 @@ function getChallengeStoreKey(challengeId: string): string {
   return `megaeth:charge:challenge:${challengeId}`;
 }
 
-function assertPayloadMatchesChallenge(
-  payload: Methods.ChargePermit2Payload,
-  challenge: Methods.ChargeRequest,
-) {
-  try {
-    return assertPermitPayloadMatchesRequest(payload, challenge);
-  } catch (error) {
-    throw verificationFailed(toReason(error));
-  }
-}
-
-function decodeCredentialTransaction(input: `0x${string}`) {
-  try {
-    return decodePermit2Transaction(input);
-  } catch (error) {
-    throw invalidPayload(toReason(error));
-  }
-}
-
-async function recoverOwner(parameters: {
-  chainId: number;
-  payload: Methods.ChargePermit2Payload;
-  permit2Address: Address;
-  spender: Address;
-}): Promise<Address> {
-  try {
-    return await recoverPermitOwner(parameters);
-  } catch (error) {
-    throw verificationFailed(toReason(error));
-  }
-}
-
 function badRequest(reason: string): Errors.BadRequestError {
   return new Errors.BadRequestError({
     reason: normalizeReason(reason),
@@ -447,6 +447,43 @@ function toReason(error: unknown): string {
   return "Retry after correcting the MegaETH payment payload";
 }
 
+function resolveRequestAddress(parameters: {
+  configured?: Address | undefined;
+  label: string;
+  value?: Address | undefined;
+}): Address {
+  const resolved = parameters.value ?? parameters.configured;
+  if (!resolved) {
+    throw badRequest(
+      `Provide ${parameters.label} so the server can issue MegaETH payment challenges`,
+    );
+  }
+
+  return resolved;
+}
+
+function resolveRequestChainId(parameters: {
+  chainId?: number | undefined;
+  testnet?: boolean | undefined;
+}): number {
+  try {
+    return resolveChainId(parameters);
+  } catch (error) {
+    throw badRequest(toReason(error));
+  }
+}
+
+function resolveCredentialChainId(parameters: {
+  chainId?: number | undefined;
+  testnet?: boolean | undefined;
+}): number {
+  try {
+    return resolveChainId(parameters);
+  } catch (error) {
+    throw invalidPayload(toReason(error));
+  }
+}
+
 export declare namespace charge {
   type Parameters = WalletClientResolver & {
     account?: Account | Address | undefined;
@@ -455,6 +492,7 @@ export declare namespace charge {
     feePayer?: boolean | undefined;
     permit2Address?: Address | undefined;
     recipient: Address;
+    submissionMode?: SubmissionMode | undefined;
     splits?: Methods.ChargeSplit[] | undefined;
     store?: Store.Store | undefined;
     testnet?: boolean | undefined;

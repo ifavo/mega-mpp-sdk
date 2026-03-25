@@ -37,6 +37,7 @@ const BATCH_WITNESS_TYPE = `${BATCH_WITNESS_STRUCT}${TRANSFER_DETAIL_TYPE}`;
 const SINGLE_WITNESS_TYPEHASH = keccak256(stringToHex(SINGLE_WITNESS_TYPE));
 const BATCH_WITNESS_TYPEHASH = keccak256(stringToHex(BATCH_WITNESS_TYPE));
 const TRANSFER_DETAIL_TYPEHASH = keccak256(stringToHex(TRANSFER_DETAIL_TYPE));
+const BASE_UNIT_INTEGER_PATTERN = /^\d+$/;
 
 type PermitTypedData = TypedDataDefinition<
   Record<string, Array<{ name: string; type: string }>>,
@@ -53,27 +54,72 @@ type TransferPlan = {
   splitTotal: bigint;
 };
 
+type DecodedBatchTransfer = {
+  isBatch: true;
+  permit: {
+    permitted: Array<{ token: Address; amount: bigint }>;
+    nonce: bigint;
+    deadline: bigint;
+  };
+  transferDetails: Array<{ to: Address; requestedAmount: bigint }>;
+  owner: Address;
+  signature: Hex;
+};
+
+type DecodedSingleTransfer = {
+  isBatch: false;
+  permit: {
+    permitted: { token: Address; amount: bigint };
+    nonce: bigint;
+    deadline: bigint;
+  };
+  transferDetails: { to: Address; requestedAmount: bigint };
+  owner: Address;
+  signature: Hex;
+};
+
+export class Permit2ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "Permit2ValidationError";
+  }
+}
+
+export class Permit2PayloadError extends Error {
+  constructor(message: string, options?: { cause?: unknown | undefined }) {
+    super(message, options);
+    this.name = "Permit2PayloadError";
+  }
+}
+
+export class Permit2VerificationError extends Error {
+  constructor(message: string, options?: { cause?: unknown | undefined }) {
+    super(message, options);
+    this.name = "Permit2VerificationError";
+  }
+}
+
 export function createTransferPlan(request: ChargeRequest): TransferPlan {
-  const totalAmount = parseBigInt(request.amount, "amount");
+  const totalAmount = parseBaseUnitInteger(request.amount, "amount");
   if (totalAmount <= 0n) {
-    throw new Error(
+    throw new Permit2ValidationError(
       "Use an amount greater than zero before retrying the payment.",
     );
   }
 
   const splits = request.methodDetails.splits ?? [];
   if (splits.length > MAX_SPLITS) {
-    throw new Error(
+    throw new Permit2ValidationError(
       `Use at most ${MAX_SPLITS} split recipients in one payment request.`,
     );
   }
 
   const splitTotal = splits.reduce(
-    (sum, split) => sum + parseBigInt(split.amount, "split amount"),
+    (sum, split) => sum + parseBaseUnitInteger(split.amount, "split amount"),
     0n,
   );
   if (splitTotal >= totalAmount) {
-    throw new Error(
+    throw new Permit2ValidationError(
       "Use split amounts that leave a positive remainder for the primary recipient before retrying the payment.",
     );
   }
@@ -86,7 +132,7 @@ export function createTransferPlan(request: ChargeRequest): TransferPlan {
     },
     ...splits.map((split) => ({
       token: getAddress(request.currency) as Address,
-      amount: parseBigInt(split.amount, "split amount").toString(),
+      amount: parseBaseUnitInteger(split.amount, "split amount").toString(),
     })),
   ];
 
@@ -97,7 +143,10 @@ export function createTransferPlan(request: ChargeRequest): TransferPlan {
     },
     ...splits.map((split) => ({
       to: getAddress(split.recipient) as Address,
-      requestedAmount: parseBigInt(split.amount, "split amount").toString(),
+      requestedAmount: parseBaseUnitInteger(
+        split.amount,
+        "split amount",
+      ).toString(),
     })),
   ];
 
@@ -154,12 +203,18 @@ export function normalizePermitted(
   return Array.isArray(permitted)
     ? permitted.map((entry) => ({
         token: getAddress(entry.token) as Address,
-        amount: parseBigInt(entry.amount, "permitted amount").toString(),
+        amount: parseBaseUnitInteger(
+          entry.amount,
+          "permitted amount",
+        ).toString(),
       }))
     : [
         {
           token: getAddress(permitted.token) as Address,
-          amount: parseBigInt(permitted.amount, "permitted amount").toString(),
+          amount: parseBaseUnitInteger(
+            permitted.amount,
+            "permitted amount",
+          ).toString(),
         },
       ];
 }
@@ -172,7 +227,7 @@ export function normalizeTransferDetails(
   return Array.isArray(transferDetails)
     ? transferDetails.map((entry) => ({
         to: getAddress(entry.to) as Address,
-        requestedAmount: parseBigInt(
+        requestedAmount: parseBaseUnitInteger(
           entry.requestedAmount,
           "requested amount",
         ).toString(),
@@ -180,7 +235,7 @@ export function normalizeTransferDetails(
     : [
         {
           to: getAddress(transferDetails.to) as Address,
-          requestedAmount: parseBigInt(
+          requestedAmount: parseBaseUnitInteger(
             transferDetails.requestedAmount,
             "requested amount",
           ).toString(),
@@ -212,7 +267,7 @@ export function assertPermitPayloadMatchesRequest(
     permitted.length !== plan.permitted.length ||
     transferDetails.length !== plan.transferDetails.length
   ) {
-    throw new Error(
+    throw new Permit2VerificationError(
       "Use the exact transfer count from the payment challenge before retrying. The current payload does not match the requested split layout.",
     );
   }
@@ -224,7 +279,7 @@ export function assertPermitPayloadMatchesRequest(
       getAddress(actualPermit.token) !== getAddress(expectedPermit.token) ||
       actualPermit.amount !== expectedPermit.amount
     ) {
-      throw new Error(
+      throw new Permit2VerificationError(
         `Use the requested token and amount for transfer ${index + 1} before retrying. The signed Permit2 payload changed those values.`,
       );
     }
@@ -237,7 +292,7 @@ export function assertPermitPayloadMatchesRequest(
       getAddress(actualTransfer.to) !== getAddress(expectedTransfer.to) ||
       actualTransfer.requestedAmount !== expectedTransfer.requestedAmount
     ) {
-      throw new Error(
+      throw new Permit2VerificationError(
         `Use the requested recipient and amount ordering for transfer ${index + 1} before retrying. The signed Permit2 payload changed those details.`,
       );
     }
@@ -407,19 +462,35 @@ export async function recoverPermitOwner(parameters: {
   spender: Address;
 }): Promise<Address> {
   const typedData = buildTypedData(parameters);
-  return (await recoverTypedDataAddress({
-    domain: typedData.domain,
-    message: typedData.message,
-    primaryType: typedData.primaryType,
-    signature: parameters.payload.signature as Hex,
-    types: typedData.types,
-  } as PermitTypedData & { signature: Hex })) as Address;
+  try {
+    return (await recoverTypedDataAddress({
+      domain: typedData.domain,
+      message: typedData.message,
+      primaryType: typedData.primaryType,
+      signature: parameters.payload.signature as Hex,
+      types: typedData.types,
+    } as PermitTypedData & { signature: Hex })) as Address;
+  } catch (error) {
+    throw new Permit2VerificationError(
+      normalizeErrorMessage(
+        error,
+        "Retry after correcting the MegaETH Permit2 signature.",
+      ),
+      { cause: error },
+    );
+  }
 }
 
 export function encodePermit2Calldata(parameters: {
   owner: Address;
   payload: ChargePermit2Payload;
 }): Hex {
+  const normalizedPermitted = normalizePermitted(
+    parameters.payload.permit.permitted,
+  );
+  const normalizedTransferDetails = normalizeTransferDetails(
+    parameters.payload.witness.transferDetails,
+  );
   const witnessHash = hashWitness(parameters.payload);
   const witnessTypeString = getWitnessTypeString(parameters.payload);
 
@@ -429,18 +500,14 @@ export function encodePermit2Calldata(parameters: {
       functionName: "permitWitnessTransferFrom",
       args: [
         {
-          permitted: normalizePermitted(
-            parameters.payload.permit.permitted,
-          ).map((entry) => ({
+          permitted: normalizedPermitted.map((entry) => ({
             token: entry.token,
             amount: BigInt(entry.amount),
           })),
           nonce: BigInt(parameters.payload.permit.nonce),
           deadline: BigInt(parameters.payload.permit.deadline),
         },
-        normalizeTransferDetails(
-          parameters.payload.witness.transferDetails,
-        ).map((entry) => ({
+        normalizedTransferDetails.map((entry) => ({
           to: entry.to,
           requestedAmount: BigInt(entry.requestedAmount),
         })),
@@ -452,20 +519,16 @@ export function encodePermit2Calldata(parameters: {
     } as Parameters<typeof encodeFunctionData>[0]);
   }
 
-  const transferDetail = normalizeTransferDetails(
-    parameters.payload.witness.transferDetails,
-  )[0]!;
+  const transferDetail = normalizedTransferDetails[0]!;
+  const permitted = normalizedPermitted[0]!;
   return encodeFunctionData({
     abi: PERMIT2_ABI,
     functionName: "permitWitnessTransferFrom",
     args: [
       {
         permitted: {
-          token: normalizePermitted(parameters.payload.permit.permitted)[0]!
-            .token,
-          amount: BigInt(
-            normalizePermitted(parameters.payload.permit.permitted)[0]!.amount,
-          ),
+          token: permitted.token,
+          amount: BigInt(permitted.amount),
         },
         nonce: BigInt(parameters.payload.permit.nonce),
         deadline: BigInt(parameters.payload.permit.deadline),
@@ -486,33 +549,30 @@ export function decodePermit2Transaction(input: Hex): {
   owner: Address;
   payload: ChargePermit2Payload;
 } {
-  const decoded = decodeFunctionData({
-    abi: PERMIT2_ABI,
-    data: input,
-  });
+  let decoded: ReturnType<typeof decodeFunctionData>;
+  try {
+    decoded = decodeFunctionData({
+      abi: PERMIT2_ABI,
+      data: input,
+    });
+  } catch (error) {
+    throw new Permit2PayloadError(
+      "Use a Permit2 witness transfer transaction before retrying the MegaETH payment.",
+      { cause: error },
+    );
+  }
 
   if (decoded.functionName !== "permitWitnessTransferFrom") {
-    throw new Error(
+    throw new Permit2PayloadError(
       "Use a Permit2 witness transfer transaction before retrying the MegaETH payment.",
     );
   }
 
-  const args = decoded.args as unknown as unknown[];
-  const permit = args[0] as {
-    permitted:
-      | Array<{ token: Address; amount: bigint }>
-      | { token: Address; amount: bigint };
-    nonce: bigint;
-    deadline: bigint;
-  };
-  if (Array.isArray(permit.permitted)) {
-    const transferDetails = (
-      args[1] as Array<{ to: Address; requestedAmount: bigint }>
-    ).map((entry) => ({
-      to: getAddress(entry.to) as Address,
-      requestedAmount: entry.requestedAmount.toString(),
-    }));
-    const owner = getAddress(args[2] as Address) as Address;
+  const normalizedTransfer = normalizeDecodedTransferArguments(
+    decoded.args as readonly unknown[],
+  );
+  if (normalizedTransfer.isBatch) {
+    const { owner, permit, signature, transferDetails } = normalizedTransfer;
     const payload: ChargePermit2Payload = {
       type: "permit2",
       permit: {
@@ -524,18 +584,17 @@ export function decodePermit2Transaction(input: Hex): {
         deadline: permit.deadline.toString(),
       },
       witness: {
-        transferDetails,
+        transferDetails: transferDetails.map((entry) => ({
+          to: getAddress(entry.to) as Address,
+          requestedAmount: entry.requestedAmount.toString(),
+        })),
       },
-      signature: args[5] as Hex,
+      signature,
     };
     return { owner, payload };
   }
 
-  const transferDetail = args[1] as {
-    to: Address;
-    requestedAmount: bigint;
-  };
-  const owner = getAddress(args[2] as Address) as Address;
+  const { owner, permit, signature, transferDetails } = normalizedTransfer;
   const payload: ChargePermit2Payload = {
     type: "permit2",
     permit: {
@@ -548,11 +607,11 @@ export function decodePermit2Transaction(input: Hex): {
     },
     witness: {
       transferDetails: {
-        to: getAddress(transferDetail.to) as Address,
-        requestedAmount: transferDetail.requestedAmount.toString(),
+        to: getAddress(transferDetails.to) as Address,
+        requestedAmount: transferDetails.requestedAmount.toString(),
       },
     },
-    signature: args[5] as Hex,
+    signature,
   };
   return { owner, payload };
 }
@@ -607,12 +666,70 @@ export function splitSummary(splits?: ChargeSplit[] | undefined): string {
   return `${splits.length} split${splits.length === 1 ? "" : "s"}`;
 }
 
-function parseBigInt(value: string, label: string): bigint {
-  try {
-    return BigInt(value);
-  } catch {
-    throw new Error(
+function normalizeDecodedTransferArguments(
+  args: readonly unknown[],
+): DecodedBatchTransfer | DecodedSingleTransfer {
+  const permit = args[0] as
+    | {
+        permitted: Array<{ token: Address; amount: bigint }>;
+        nonce: bigint;
+        deadline: bigint;
+      }
+    | {
+        permitted: { token: Address; amount: bigint };
+        nonce: bigint;
+        deadline: bigint;
+      };
+  const owner = getAddress(args[2] as Address) as Address;
+  const signature = args[5] as Hex;
+
+  if (Array.isArray(permit.permitted)) {
+    return {
+      isBatch: true,
+      permit: {
+        permitted: permit.permitted,
+        nonce: permit.nonce,
+        deadline: permit.deadline,
+      },
+      transferDetails: args[1] as Array<{
+        to: Address;
+        requestedAmount: bigint;
+      }>,
+      owner,
+      signature,
+    };
+  }
+
+  return {
+    isBatch: false,
+    permit: {
+      permitted: permit.permitted,
+      nonce: permit.nonce,
+      deadline: permit.deadline,
+    },
+    transferDetails: args[1] as {
+      to: Address;
+      requestedAmount: bigint;
+    },
+    owner,
+    signature,
+  };
+}
+
+function parseBaseUnitInteger(value: string, label: string): bigint {
+  if (!BASE_UNIT_INTEGER_PATTERN.test(value)) {
+    throw new Permit2ValidationError(
       `Use a base-unit integer string for ${label} before retrying the payment.`,
     );
   }
+
+  return BigInt(value);
+}
+
+function normalizeErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
 }

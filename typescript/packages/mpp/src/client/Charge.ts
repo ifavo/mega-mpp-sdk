@@ -15,13 +15,18 @@ import {
   getPermit2Address,
   buildTypedData,
 } from "../utils/permit2.js";
-import { submitTransaction } from "../utils/rpc.js";
+import { submitTransaction, type SubmissionMode } from "../utils/rpc.js";
 import { createDidPkhSource } from "../utils/source.js";
 
 export function charge(
   parameters: charge.Parameters,
 ): Method.Client<typeof Methods.charge> {
-  const { account, broadcast = false, onProgress } = parameters;
+  const {
+    account,
+    credentialMode = "permit2",
+    onProgress,
+    submissionMode,
+  } = parameters;
 
   return Method.toClient(Methods.charge, {
     async createCredential({ challenge }) {
@@ -29,10 +34,14 @@ export function charge(
       const walletClient = await resolveWalletClient(parameters, chainId);
       const signer = resolveAccount(walletClient, account);
       const permit2Address = getPermit2Address(challenge.request);
+      const returnsTransactionHashCredential = credentialMode === "hash";
 
-      if (broadcast && challenge.request.methodDetails.feePayer) {
+      if (
+        returnsTransactionHashCredential &&
+        challenge.request.methodDetails.feePayer
+      ) {
         throw new Error(
-          "Use the default Permit2 credential flow for this challenge because the server asked to sponsor gas. Disable broadcast mode and retry.",
+          'Use credentialMode "permit2" for this challenge because the server asked to sponsor gas. Retry after switching away from the transaction-hash credential flow.',
         );
       }
 
@@ -60,7 +69,9 @@ export function charge(
       });
 
       const spender = (
-        broadcast ? signer.address : challenge.request.recipient
+        returnsTransactionHashCredential
+          ? signer.address
+          : challenge.request.recipient
       ) as Address;
       const typedData = buildTypedData({
         chainId,
@@ -86,7 +97,7 @@ export function charge(
         signature,
       };
 
-      if (!broadcast) {
+      if (credentialMode === "permit2") {
         onProgress?.({ type: "signed" });
         onProgress?.({ type: "paying" });
         onProgress?.({ type: "confirming" });
@@ -111,11 +122,12 @@ export function charge(
         chainId,
         data: calldata,
         publicClient,
+        submissionMode,
         to: permit2Address,
         walletClient,
       });
 
-      onProgress?.({ signature: receipt.transactionHash, type: "paid" });
+      onProgress?.({ transactionHash: receipt.transactionHash, type: "paid" });
       return Credential.serialize({
         challenge,
         payload: {
@@ -150,13 +162,14 @@ export declare namespace charge {
         type: "confirming";
       }
     | {
-        signature?: Hex | undefined;
+        transactionHash?: Hex | undefined;
         type: "paid";
       };
 
   type Parameters = WalletClientResolver & {
     account?: Account | Address | undefined;
-    broadcast?: boolean | undefined;
+    credentialMode?: "permit2" | "hash" | undefined;
     onProgress?: ((progress: Progress) => void) | undefined;
+    submissionMode?: SubmissionMode | undefined;
   };
 }

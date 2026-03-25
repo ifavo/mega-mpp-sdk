@@ -1,31 +1,44 @@
 import { Method, z } from "mppx";
 
+const BASE_UNIT_INTEGER_PATTERN = /^\d+$/;
+
+function baseUnitIntegerString(label: string) {
+  return z
+    .string()
+    .check(
+      z.regex(
+        BASE_UNIT_INTEGER_PATTERN,
+        `Use a base-unit integer string for ${label} before retrying the payment.`,
+      ),
+    );
+}
+
 const tokenPermissionSchema = z.object({
   token: z.address(),
-  amount: z.string(),
+  amount: baseUnitIntegerString("permitted amount"),
 });
 
 const transferDetailSchema = z.object({
   to: z.address(),
-  requestedAmount: z.string(),
+  requestedAmount: baseUnitIntegerString("requested amount"),
 });
 
 export const splitSchema = z.object({
   recipient: z.address(),
-  amount: z.string(),
+  amount: baseUnitIntegerString("split amount"),
   memo: z.optional(z.string()),
 });
 
 const permitSingleSchema = z.object({
   permitted: tokenPermissionSchema,
-  nonce: z.string(),
-  deadline: z.string(),
+  nonce: baseUnitIntegerString("nonce"),
+  deadline: baseUnitIntegerString("deadline"),
 });
 
 const permitBatchSchema = z.object({
   permitted: z.array(tokenPermissionSchema),
-  nonce: z.string(),
-  deadline: z.string(),
+  nonce: baseUnitIntegerString("nonce"),
+  deadline: baseUnitIntegerString("deadline"),
 });
 
 const witnessSingleSchema = z.object({
@@ -55,7 +68,7 @@ export const charge = Method.from({
       ]),
     },
     request: z.object({
-      amount: z.string(),
+      amount: baseUnitIntegerString("amount"),
       currency: z.address(),
       description: z.optional(z.string()),
       externalId: z.optional(z.string()),

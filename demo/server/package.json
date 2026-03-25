@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm typecheck",
     "dev": "tsx watch src/index.ts",
+    "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

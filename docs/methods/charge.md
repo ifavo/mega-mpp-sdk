@@ -2,14 +2,14 @@
 
 ## Modes
 
-### Direct Permit2
+### Permit2 Credential (Server Broadcast)
 
 - Client signs Permit2 typed data.
 - Server validates the challenge, signature, token, amount, splits, and source DID.
 - Server broadcasts the Permit2 transaction from the settlement wallet.
 - This mode is the fee-sponsored flow.
 
-### Broadcast Hash
+### Transaction Hash Credential (Client Broadcast)
 
 - Client signs Permit2 typed data.
 - Client broadcasts the Permit2 transaction itself.
@@ -20,7 +20,7 @@
 
 ```ts
 type ChargeRequest = {
-  amount: string
+  amount: string // base-unit integer string
   currency: `0x${string}`
   recipient: `0x${string}`
   description?: string
@@ -32,12 +32,14 @@ type ChargeRequest = {
     permit2Address?: `0x${string}`
     splits?: Array<{
       recipient: `0x${string}`
-      amount: string
+      amount: string // base-unit integer string
       memo?: string
     }>
   }
 }
 ```
+
+`methodDetails.chainId` and `methodDetails.testnet` now resolve the network explicitly. If both are present, they must agree with each other.
 
 ## Receipt Behavior
 
@@ -59,7 +61,7 @@ type ChargeReceipt = {
 
 ## Client Progress Lifecycle
 
-Both direct Permit2 mode and broadcast `hash` mode now emit the same user-facing lifecycle stages:
+Both `credentialMode: "permit2"` and `credentialMode: "hash"` now emit the same user-facing lifecycle stages:
 
 - `challenge`
 - `signing`
@@ -68,6 +70,22 @@ Both direct Permit2 mode and broadcast `hash` mode now emit the same user-facing
 - `confirming`
 - `paid`
 
+## Client Credential Mode
+
+The client charge factory accepts an optional `credentialMode` parameter:
+
+- `permit2`: return a signed Permit2 credential for server-side verification and broadcast
+- `hash`: broadcast the Permit2 transaction from the payer wallet and return a transaction-hash credential
+
+## Submission Mode
+
+Client and server charge factories both accept an optional `submissionMode` parameter:
+
+- `auto`: try the preferred MegaETH submission path, and only downgrade when the wallet or RPC reports an unsupported method
+- `sync`: require `eth_sendRawTransactionSync`
+- `realtime`: require `realtime_sendRawTransaction`
+- `sendAndWait`: send the raw transaction through the standard path and wait for the receipt by transaction hash
+
 ## Error Style
 
 All server failures are written to be instructive. They should tell the caller what to fix next, for example:
@@ -75,6 +93,6 @@ All server failures are written to be instructive. They should tell the caller w
 - approve Permit2 before retrying
 - request a fresh challenge before retrying
 - use the requested recipient and amount ordering before retrying
-- disable broadcast mode when the server sponsors gas
+- set `credentialMode` to `"permit2"` when the server sponsors gas
 
 The verification layer maps those failures onto `mppx.Errors.*` problem-details classes so callers can inspect both the human-readable detail and the RFC 9457 `type` URI.

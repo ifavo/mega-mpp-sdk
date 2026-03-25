@@ -5,6 +5,12 @@ import {
   signTransaction,
   waitForTransactionReceipt,
 } from "viem/actions";
+import {
+  BaseError,
+  MethodNotFoundRpcError,
+  MethodNotSupportedRpcError,
+  UnsupportedProviderMethodError,
+} from "viem";
 import type {
   Account,
   Address,
@@ -16,11 +22,16 @@ import type {
 
 import { resolveChain } from "./clients.js";
 
+export type SubmissionMode = "auto" | "sync" | "realtime" | "sendAndWait";
+
+const UNSUPPORTED_METHOD_CODES = new Set([-32601, 4200]);
+
 type SubmitParameters = {
   account: Account;
   chainId: number;
   data: Hex;
   publicClient: PublicClient;
+  submissionMode?: SubmissionMode | undefined;
   to: Address;
   walletClient: WalletClient;
 };
@@ -28,7 +39,15 @@ type SubmitParameters = {
 export async function submitTransaction(
   parameters: SubmitParameters,
 ): Promise<TransactionReceipt> {
-  const { account, chainId, data, publicClient, to, walletClient } = parameters;
+  const {
+    account,
+    chainId,
+    data,
+    publicClient,
+    submissionMode = "auto",
+    to,
+    walletClient,
+  } = parameters;
 
   const prepared = await prepareTransactionRequest(publicClient, {
     account,
@@ -39,51 +58,65 @@ export async function submitTransaction(
 
   try {
     const signedTransaction = await signTransaction(walletClient, prepared);
-    return await sendSignedTransaction(publicClient, signedTransaction);
-  } catch {
-    const hash = await sendTransaction(walletClient, {
-      account,
-      chain: resolveChain(chainId),
-      data,
-      to,
-    });
-    return await waitForTransactionReceipt(publicClient, { hash });
+    return await sendSignedTransaction(
+      publicClient,
+      signedTransaction,
+      submissionMode,
+    );
+  } catch (error) {
+    if (!isUnsupportedMethodError(error)) {
+      throw error;
+    }
   }
+
+  const hash = await sendTransaction(walletClient, {
+    account,
+    chain: resolveChain(chainId),
+    data,
+    to,
+  });
+  return await waitForTransactionReceipt(publicClient, { hash });
 }
 
 export async function sendSignedTransaction(
   publicClient: PublicClient,
   signedTransaction: Hex,
+  submissionMode: SubmissionMode = "auto",
 ): Promise<TransactionReceipt> {
-  const request = publicClient.request as (parameters: {
-    method: string;
-    params?: readonly unknown[] | undefined;
-  }) => Promise<unknown>;
-
-  try {
-    return await normalizeSubmissionResult(
+  if (submissionMode === "sync") {
+    return await submitWithRpcMethod(
       publicClient,
-      await request({
-        method: "eth_sendRawTransactionSync",
-        params: [signedTransaction],
-      }),
+      signedTransaction,
+      "eth_sendRawTransactionSync",
     );
-  } catch {
+  }
+
+  if (submissionMode === "realtime") {
+    return await submitWithRpcMethod(
+      publicClient,
+      signedTransaction,
+      "realtime_sendRawTransaction",
+    );
+  }
+
+  if (submissionMode === "sendAndWait") {
+    return await sendRawTransactionAndWait(publicClient, signedTransaction);
+  }
+
+  for (const method of [
+    "eth_sendRawTransactionSync",
+    "realtime_sendRawTransaction",
+  ] as const) {
     try {
-      return await normalizeSubmissionResult(
-        publicClient,
-        await request({
-          method: "realtime_sendRawTransaction",
-          params: [signedTransaction],
-        }),
-      );
-    } catch {
-      const hash = await sendRawTransaction(publicClient, {
-        serializedTransaction: signedTransaction,
-      });
-      return await waitForTransactionReceipt(publicClient, { hash });
+      return await submitWithRpcMethod(publicClient, signedTransaction, method);
+    } catch (error) {
+      if (!isUnsupportedMethodError(error)) {
+        throw error;
+      }
     }
   }
+
+  return await sendRawTransactionAndWait(publicClient, signedTransaction);
 }
 
 async function normalizeSubmissionResult(
@@ -127,4 +160,77 @@ function isTransactionReceipt(result: unknown): result is TransactionReceipt {
     typeof transactionHash === "string" &&
     (status === "success" || status === "reverted")
   );
+}
+
+async function submitWithRpcMethod(
+  publicClient: PublicClient,
+  signedTransaction: Hex,
+  method: "eth_sendRawTransactionSync" | "realtime_sendRawTransaction",
+): Promise<TransactionReceipt> {
+  const request = publicClient.request as (parameters: {
+    method: string;
+    params?: readonly unknown[] | undefined;
+  }) => Promise<unknown>;
+
+  return await normalizeSubmissionResult(
+    publicClient,
+    await request({
+      method,
+      params: [signedTransaction],
+    }),
+  );
+}
+
+async function sendRawTransactionAndWait(
+  publicClient: PublicClient,
+  signedTransaction: Hex,
+): Promise<TransactionReceipt> {
+  const hash = await sendRawTransaction(publicClient, {
+    serializedTransaction: signedTransaction,
+  });
+  return await waitForTransactionReceipt(publicClient, { hash });
+}
+
+function isUnsupportedMethodError(error: unknown): boolean {
+  if (
+    error instanceof MethodNotFoundRpcError ||
+    error instanceof MethodNotSupportedRpcError ||
+    error instanceof UnsupportedProviderMethodError
+  ) {
+    return true;
+  }
+
+  const code = getErrorCode(error);
+  if (code !== undefined && UNSUPPORTED_METHOD_CODES.has(code)) {
+    return true;
+  }
+
+  return getErrorMessages(error).some((message) =>
+    /(method not found|does not exist|unsupported|not supported|not implemented)/i.test(
+      message,
+    ),
+  );
+}
+
+function getErrorCode(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const code = Reflect.get(error, "code");
+  return typeof code === "number" ? code : undefined;
+}
+
+function getErrorMessages(error: unknown): string[] {
+  if (error instanceof BaseError) {
+    return [error.shortMessage, error.details, error.message].filter(
+      (message): message is string => Boolean(message),
+    );
+  }
+
+  if (error instanceof Error) {
+    return [error.message];
+  }
+
+  return [String(error)];
 }

@@ -1,0 +1,190 @@
+import { custom, createPublicClient, MethodNotFoundRpcError } from "viem";
+import type * as ViemActionsModule from "viem/actions";
+import {
+  prepareTransactionRequest,
+  sendRawTransaction,
+  sendTransaction,
+  signTransaction,
+  waitForTransactionReceipt,
+} from "viem/actions";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { megaethTestnet } from "../constants.js";
+import { sendSignedTransaction, submitTransaction } from "../utils/rpc.js";
+import {
+  createLocalWalletClient,
+  createTransactionReceipt,
+} from "./fixtures/chargeTestkit.js";
+
+vi.mock("viem/actions", async () => {
+  const actual =
+    await vi.importActual<typeof ViemActionsModule>("viem/actions");
+
+  return {
+    ...actual,
+    prepareTransactionRequest: vi.fn(),
+    sendRawTransaction: vi.fn(),
+    sendTransaction: vi.fn(),
+    signTransaction: vi.fn(),
+    waitForTransactionReceipt: vi.fn(),
+  };
+});
+
+const mockedPrepareTransactionRequest = vi.mocked(prepareTransactionRequest);
+const mockedSendRawTransaction = vi.mocked(sendRawTransaction);
+const mockedSendTransaction = vi.mocked(sendTransaction);
+const mockedSignTransaction = vi.mocked(signTransaction);
+const mockedWaitForTransactionReceipt = vi.mocked(waitForTransactionReceipt);
+
+describe("rpc submission", () => {
+  beforeEach(() => {
+    mockedPrepareTransactionRequest.mockReset();
+    mockedSendRawTransaction.mockReset();
+    mockedSendTransaction.mockReset();
+    mockedSignTransaction.mockReset();
+    mockedWaitForTransactionReceipt.mockReset();
+  });
+
+  it("falls back from sync submission to realtime submission when the sync method is unsupported", async () => {
+    const hash =
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
+      if (method === "eth_sendRawTransactionSync") {
+        throw new MethodNotFoundRpcError(new Error("missing method"));
+      }
+
+      if (method === "realtime_sendRawTransaction") {
+        return hash;
+      }
+
+      throw new Error(`Unexpected request method: ${method}`);
+    });
+    mockedWaitForTransactionReceipt.mockResolvedValueOnce(
+      createTransactionReceipt(hash),
+    );
+
+    const receipt = await sendSignedTransaction(publicClient, "0x1234");
+
+    expect(receipt.transactionHash).toBe(hash);
+    expect(mockedWaitForTransactionReceipt).toHaveBeenCalledWith(publicClient, {
+      hash,
+    });
+  });
+
+  it("propagates the first supported submission error instead of downgrading it", async () => {
+    const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
+      if (method === "eth_sendRawTransactionSync") {
+        throw new Error("MegaETH sync submission failed.");
+      }
+
+      return undefined;
+    });
+
+    await expect(
+      sendSignedTransaction(publicClient, "0x1234"),
+    ).rejects.toThrowError("MegaETH sync submission failed.");
+  });
+
+  it("uses sendAndWait submission directly when the caller configures that mode", async () => {
+    const hash =
+      "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const publicClient = createRequestDrivenPublicClient(async () => {
+      throw new Error(
+        "sendAndWait mode should not issue MegaETH RPC submission requests.",
+      );
+    });
+    mockedSendRawTransaction.mockResolvedValueOnce(hash);
+    mockedWaitForTransactionReceipt.mockResolvedValueOnce(
+      createTransactionReceipt(hash),
+    );
+
+    const receipt = await sendSignedTransaction(
+      publicClient,
+      "0x1234",
+      "sendAndWait",
+    );
+
+    expect(receipt.transactionHash).toBe(hash);
+    expect(mockedSendRawTransaction).toHaveBeenCalledWith(publicClient, {
+      serializedTransaction: "0x1234",
+    });
+  });
+
+  it("falls back to wallet sendTransaction only when raw signing is unsupported", async () => {
+    const hash =
+      "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+    const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
+      if (method === "eth_sendRawTransactionSync") {
+        return hash;
+      }
+
+      throw new Error(`Unexpected request method: ${method}`);
+    });
+    const walletClient = createLocalWalletClient();
+    mockedPrepareTransactionRequest.mockResolvedValueOnce({
+      account: walletClient.account,
+      chain: megaethTestnet,
+      data: "0x1234",
+      to: "0x1111111111111111111111111111111111111111",
+    } as Awaited<ReturnType<typeof prepareTransactionRequest>>);
+    mockedSignTransaction.mockRejectedValueOnce({
+      code: 4200,
+      message: "signTransaction is not supported by this wallet.",
+    });
+    mockedSendTransaction.mockResolvedValueOnce(hash);
+    mockedWaitForTransactionReceipt.mockResolvedValueOnce(
+      createTransactionReceipt(hash),
+    );
+
+    const receipt = await submitTransaction({
+      account: walletClient.account,
+      chainId: megaethTestnet.id,
+      data: "0x1234",
+      publicClient,
+      to: "0x1111111111111111111111111111111111111111",
+      walletClient,
+    });
+
+    expect(receipt.transactionHash).toBe(hash);
+    expect(mockedSendTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("propagates signing errors when the wallet actually supports raw signing", async () => {
+    const publicClient = createRequestDrivenPublicClient(async () => "0x");
+    const walletClient = createLocalWalletClient();
+    mockedPrepareTransactionRequest.mockResolvedValueOnce({
+      account: walletClient.account,
+      chain: megaethTestnet,
+      data: "0x1234",
+      to: "0x1111111111111111111111111111111111111111",
+    } as Awaited<ReturnType<typeof prepareTransactionRequest>>);
+    mockedSignTransaction.mockRejectedValueOnce(
+      new Error("The raw transaction is invalid."),
+    );
+
+    await expect(
+      submitTransaction({
+        account: walletClient.account,
+        chainId: megaethTestnet.id,
+        data: "0x1234",
+        publicClient,
+        to: "0x1111111111111111111111111111111111111111",
+        walletClient,
+      }),
+    ).rejects.toThrowError("The raw transaction is invalid.");
+  });
+});
+
+function createRequestDrivenPublicClient(
+  request: (parameters: {
+    method: string;
+    params?: readonly unknown[] | undefined;
+  }) => Promise<unknown>,
+) {
+  return createPublicClient({
+    chain: megaethTestnet,
+    transport: custom({
+      request,
+    }),
+  });
+}

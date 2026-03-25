@@ -39,7 +39,7 @@ pnpm demo:server
 pnpm demo:app
 ```
 
-Open `http://localhost:5173`, connect the client wallet, review the cost shown in the `Run Payment` panel, select `Server settles Permit2`, and run the `Direct MegaETH charge demo` endpoint.
+Open `http://localhost:5173`, connect the client wallet, review the cost shown in the `Request Paid Resource` panel, select `Server broadcasts Permit2 transaction`, and run the `Direct MegaETH charge demo` endpoint.
 
 ## One-Time Client Approval
 
@@ -64,7 +64,7 @@ cast send "$MEGAETH_TOKEN_ADDRESS" \
 The demo boots without live credentials so you can inspect the UI and readiness payloads. In that state:
 
 - `/api/v1/health` reports `configuration-required` or `partial-configuration`
-- `/api/v1/config` publishes separate blockers for `permit2` and `hash`
+- `/api/v1/config` publishes separate blockers for `permit2` and transaction-hash credential flows
 - paid endpoints return instructive `503` responses until their selected mode is configured
 
 ## Live/Testnet Environment
@@ -101,7 +101,7 @@ Before using the live demo against a funded payer wallet:
 2. Fund that wallet with ETH for gas and the configured payment token.
 3. On Carrot testnet, use testnet USDC instead of USDm by setting `MEGAETH_TOKEN_ADDRESS=0x75139a9559c9cd1ad69b7e239c216151d2c81e6f`.
 4. Approve Permit2 once for the token amount you plan to test.
-5. Use `permit2` mode for server-settled flow or `hash` mode for client-broadcast flow.
+5. Use `permit2` mode for server-broadcast flow or `hash` mode for client-broadcast transaction-hash credentials.
 
 The split endpoint also requires `MEGAETH_SPLIT_RECIPIENT`. Without it, the split route still appears in config, but health warns that the server cannot fan out the extra transfer leg yet.
 
@@ -111,6 +111,6 @@ The split endpoint also requires `MEGAETH_SPLIT_RECIPIENT`. Without it, the spli
 2. Approve Permit2 once for testnet USDC from the client wallet.
 3. Start `pnpm demo:server` and `pnpm demo:app` after exporting the Carrot environment above.
 4. Confirm `/api/v1/health` reports both modes as `ready`.
-5. Connect the client wallet in the browser, choose `Server settles Permit2`, and run the basic endpoint.
+5. Connect the client wallet in the browser, choose `Server broadcasts Permit2 transaction`, and run the basic endpoint.
 6. Confirm the UI shows `challenge`, `signing`, `signed`, `paying`, `confirming`, and `paid`, then inspect the `Payment-Receipt` header shown in the progress panel.
 7. Confirm the server wallet spent ETH for gas and received the paid USDC amount.

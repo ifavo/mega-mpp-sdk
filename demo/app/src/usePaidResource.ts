@@ -1,0 +1,165 @@
+import { useMutation } from "@tanstack/react-query";
+import {
+  Mppx,
+  megaeth,
+} from "../../../typescript/packages/mpp/src/client/index.js";
+import {
+  createPublicClient,
+  createWalletClient,
+  custom,
+  http,
+  type Address,
+} from "viem";
+
+import { formatChargeCost } from "./cost.js";
+import type { ChargeProgress, ChargeResult, DemoConfig } from "./types.js";
+import { createDemoChain } from "./wallet.js";
+
+export function usePaidResourceRequest(parameters: {
+  onProgress: (progress: ChargeProgress) => void;
+  onReceipt: (receipt: string | null) => void;
+}) {
+  return useMutation({
+    mutationFn: async (resourceRequest: {
+      account: Address;
+      credentialMode: "permit2" | "hash";
+      config: DemoConfig;
+      endpoint: string;
+    }): Promise<ChargeResult> => {
+      const provider = window.ethereum;
+      if (!provider) {
+        throw new Error(
+          "Install an EIP-1193 wallet before retrying the MegaETH demo.",
+        );
+      }
+
+      const chain = createDemoChain(resourceRequest.config);
+      const walletClient = createWalletClient({
+        account: resourceRequest.account,
+        chain,
+        transport: custom(provider),
+      });
+      const publicClient = createPublicClient({
+        chain,
+        transport: http(resourceRequest.config.rpcUrl),
+      });
+
+      const mppx = Mppx.create({
+        methods: [
+          megaeth.charge({
+            account: resourceRequest.account,
+            credentialMode: resourceRequest.credentialMode,
+            onProgress(progress) {
+              parameters.onProgress(
+                toProgressState(
+                  progress,
+                  resourceRequest.config,
+                  resourceRequest.credentialMode,
+                ),
+              );
+            },
+            publicClient,
+            rpcUrls: {
+              [resourceRequest.config.chainId]: resourceRequest.config.rpcUrl,
+            },
+            walletClient,
+          }),
+        ],
+        polyfill: false,
+      });
+
+      const response = await mppx.fetch(
+        `${resourceRequest.config.apiOrigin}${resourceRequest.endpoint}`,
+      );
+      const receipt = response.headers.get("payment-receipt");
+      parameters.onReceipt(receipt);
+      return {
+        receipt,
+        resource: await response.json(),
+      };
+    },
+    onMutate() {
+      parameters.onProgress({ type: "idle" });
+      parameters.onReceipt(null);
+    },
+    onError(error) {
+      parameters.onProgress({
+        detail:
+          error instanceof Error
+            ? error.message
+            : "Retry after resolving the paid-request error.",
+        type: "error",
+      });
+    },
+  });
+}
+
+function toProgressState(
+  progress:
+    | {
+        amount: string;
+        type: "challenge";
+      }
+    | {
+        transactionHash?: `0x${string}` | undefined;
+        type: "paid";
+      }
+    | {
+        type: "confirming" | "paying" | "signed" | "signing";
+      },
+  config: DemoConfig,
+  credentialMode: "permit2" | "hash",
+): ChargeProgress {
+  if (progress.type === "challenge") {
+    const formattedAmount = formatChargeCost({
+      amount: progress.amount,
+      decimals: config.tokenDecimals,
+      symbol: config.tokenSymbol,
+    });
+    return {
+      detail: `Payment challenge received for ${formattedAmount.formatted}.`,
+      type: "challenge",
+    };
+  }
+
+  if (progress.type === "confirming") {
+    return {
+      detail:
+        credentialMode === "hash"
+          ? "Waiting for the Permit2 transaction to confirm on MegaETH before the demo server verifies the transaction-hash credential."
+          : "Waiting for the demo server to verify the signed Permit2 credential and broadcast the settlement transaction.",
+      type: "confirming",
+    };
+  }
+
+  if (progress.type === "paid") {
+    return {
+      detail: progress.transactionHash
+        ? `Permit2 transaction ${progress.transactionHash} confirmed on MegaETH.`
+        : "Signed Permit2 credential returned to the demo server for verification. Inspect the receipt header below after the paid resource is released.",
+      type: "paid",
+    };
+  }
+
+  if (progress.type === "signed") {
+    return {
+      detail:
+        credentialMode === "hash"
+          ? "Permit2 payload signed and ready for client broadcast."
+          : "Permit2 credential signed and ready for server verification.",
+      type: "signed",
+    };
+  }
+
+  if (progress.type === "paying") {
+    return {
+      detail:
+        credentialMode === "hash"
+          ? "Broadcasting the Permit2 transaction from the payer wallet now."
+          : "Returning the signed Permit2 credential to the demo server now.",
+      type: "paying",
+    };
+  }
+
+  return { type: progress.type };
+}

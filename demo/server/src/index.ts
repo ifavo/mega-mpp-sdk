@@ -4,43 +4,15 @@ import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express, { type Request as ExpressRequest, type Response as ExpressResponse } from 'express';
 import { Mppx, megaeth as megaethMethod } from '../../../typescript/packages/mpp/src/server/index.js';
+import { createPublicClient, createWalletClient, http } from 'viem';
+
 import {
-  DEFAULT_USDM,
-  PERMIT2_ADDRESS,
-  megaeth as megaethChain,
-  megaethTestnet,
-  TESTNET_USDC,
-} from '../../../typescript/packages/mpp/src/constants.js';
-import { createPublicClient, createWalletClient, http, type Address } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-
-type DemoMode = 'permit2' | 'hash';
-
-type ModeStatus = {
-  blockers: string[];
-  feePayer: boolean;
-  label: string;
-  ready: boolean;
-  recipient?: Address | undefined;
-  settlement: 'client' | 'server';
-};
-
-type DemoConfig = {
-  apiOrigin: string;
-  canSettle: boolean;
-  chainId: number;
-  feePayer: boolean;
-  modes: Record<DemoMode, ModeStatus>;
-  permit2Address: `0x${string}`;
-  recipient?: `0x${string}` | undefined;
-  rpcUrl: string;
-  splitAmount: string;
-  splitRecipient?: `0x${string}` | undefined;
-  testnet: boolean;
-  tokenAddress: `0x${string}`;
-  tokenDecimals: number;
-  tokenSymbol: string;
-};
+  createDemoConfig,
+  getWarnings,
+  loadDemoEnvironment,
+  resolveDemoStatus,
+  resolveMode,
+} from './config.js';
 
 const app = express();
 app.use(express.json());
@@ -50,102 +22,70 @@ app.use(
   }),
 );
 
-const port = Number(process.env.PORT ?? 3001);
-const testnet = process.env.MEGAETH_TESTNET !== 'false';
-const chain = testnet ? megaethTestnet : megaethChain;
-const rpcUrl = process.env.MEGAETH_RPC_URL ?? chain.rpcUrls.default.http[0]!;
-const tokenAddress = (process.env.MEGAETH_TOKEN_ADDRESS ?? DEFAULT_USDM.address) as `0x${string}`;
-const permit2Address = (process.env.MEGAETH_PERMIT2_ADDRESS ?? PERMIT2_ADDRESS) as `0x${string}`;
-const tokenMetadata = resolveTokenMetadata({
-  testnet,
-  tokenAddress,
-});
-const splitRecipient = process.env.MEGAETH_SPLIT_RECIPIENT as `0x${string}` | undefined;
-const splitAmount = process.env.MEGAETH_SPLIT_AMOUNT ?? '50000';
-const feePayer = process.env.MEGAETH_FEE_PAYER !== 'false';
-const apiOrigin = process.env.DEMO_PUBLIC_ORIGIN ?? `http://localhost:${port}`;
-const secretKey = process.env.MPP_SECRET_KEY;
-const settlementKey = process.env.MEGAETH_SETTLEMENT_PRIVATE_KEY as `0x${string}` | undefined;
-const settlementAccount = settlementKey ? privateKeyToAccount(settlementKey) : undefined;
-const recipientAddress = (process.env.MEGAETH_RECIPIENT_ADDRESS ?? settlementAccount?.address) as
-  | `0x${string}`
-  | undefined;
+const environment = loadDemoEnvironment();
 const publicClient = createPublicClient({
-  chain,
-  transport: http(rpcUrl),
+  chain: environment.chain,
+  transport: http(environment.rpcUrl),
 });
-const walletClient = settlementAccount
+const walletClient = environment.settlementAccount
   ? createWalletClient({
-      account: settlementAccount,
-      chain,
-      transport: http(rpcUrl),
+      account: environment.settlementAccount,
+      chain: environment.chain,
+      transport: http(environment.rpcUrl),
     })
   : undefined;
-const modeStatuses = createModeStatuses();
-
-const demoConfig: DemoConfig = {
-  apiOrigin,
-  canSettle: modeStatuses.permit2.ready,
-  chainId: chain.id,
-  feePayer,
-  modes: modeStatuses,
-  permit2Address,
-  ...(recipientAddress ? { recipient: recipientAddress } : {}),
-  rpcUrl,
-  splitAmount,
-  ...(splitRecipient ? { splitRecipient } : {}),
-  testnet,
-  tokenAddress,
-  tokenDecimals: tokenMetadata.decimals,
-  tokenSymbol: tokenMetadata.symbol,
-};
+const demoConfig = createDemoConfig(environment);
 
 const permit2Mppx =
-  secretKey && settlementAccount && walletClient
+  environment.secretKey && environment.settlementAccount && walletClient
     ? Mppx.create({
         methods: [
           megaethMethod.charge({
-            account: settlementAccount,
-            chainId: chain.id,
-            currency: tokenAddress,
-            feePayer,
-            permit2Address,
+            account: environment.settlementAccount,
+            chainId: environment.chain.id,
+            currency: environment.tokenAddress,
+            feePayer: environment.feePayer,
+            permit2Address: environment.permit2Address,
             publicClient,
-            recipient: settlementAccount.address,
-            rpcUrls: { [chain.id]: rpcUrl },
-            testnet,
+            recipient: environment.settlementAccount.address,
+            rpcUrls: { [environment.chain.id]: environment.rpcUrl },
+            testnet: environment.testnet,
             walletClient,
           }),
         ],
-        realm: new URL(apiOrigin).host,
-        secretKey,
+        realm: new URL(environment.apiOrigin).host,
+        secretKey: environment.secretKey,
       })
     : undefined;
+
 const hashMppx =
-  secretKey && recipientAddress
+  environment.secretKey && environment.recipientAddress
     ? Mppx.create({
         methods: [
           megaethMethod.charge({
-            chainId: chain.id,
-            currency: tokenAddress,
+            chainId: environment.chain.id,
+            currency: environment.tokenAddress,
             feePayer: false,
-            permit2Address,
+            permit2Address: environment.permit2Address,
             publicClient,
-            recipient: recipientAddress,
-            rpcUrls: { [chain.id]: rpcUrl },
-            testnet,
+            recipient: environment.recipientAddress,
+            rpcUrls: { [environment.chain.id]: environment.rpcUrl },
+            testnet: environment.testnet,
           }),
         ],
-        realm: new URL(apiOrigin).host,
-        secretKey,
+        realm: new URL(environment.apiOrigin).host,
+        secretKey: environment.secretKey,
       })
     : undefined;
 
 app.get('/api/v1/health', (_request: ExpressRequest, response: ExpressResponse) => {
   response.json({
     ...demoConfig,
-    status: resolveDemoStatus(modeStatuses),
-    warnings: getWarnings(),
+    status: resolveDemoStatus(environment.modeStatuses),
+    warnings: getWarnings({
+      modeStatuses: environment.modeStatuses,
+      splitRecipient: environment.splitRecipient,
+    }),
   });
 });
 
@@ -186,12 +126,12 @@ app.get('/api/v1/charge/splits', async (request: ExpressRequest, response: Expre
     amount: '250000',
     description: 'MegaETH MPP split charge demo',
     externalId: 'demo-splits',
-    splits: splitRecipient
+    splits: environment.splitRecipient
       ? [
           {
-            amount: splitAmount,
+            amount: environment.splitAmount,
             memo: 'platform fee',
-            recipient: splitRecipient,
+            recipient: environment.splitRecipient,
           },
         ]
       : [],
@@ -205,8 +145,8 @@ app.get('*splat', (_request: ExpressRequest, response: ExpressResponse) => {
   response.sendFile(path.join(appDist, 'index.html'));
 });
 
-app.listen(port, () => {
-  process.stdout.write(`mega-mpp demo server listening on ${apiOrigin}\n`);
+app.listen(environment.port, () => {
+  process.stdout.write(`mega-mpp demo server listening on ${environment.apiOrigin}\n`);
 });
 
 async function handlePaidRequest(
@@ -245,7 +185,7 @@ async function handlePaidRequest(
 
   const result = await runtime.mppx.megaeth.charge({
     amount: parameters.amount,
-    currency: tokenAddress,
+    currency: environment.tokenAddress,
     description: parameters.description,
     externalId: parameters.externalId,
     methodDetails: {
@@ -269,129 +209,23 @@ async function handlePaidRequest(
       recipient: runtime.recipient,
       splitCount: parameters.splits?.length ?? 0,
       status: 'paid',
-      tokenAddress,
+      tokenAddress: environment.tokenAddress,
     }),
   );
 
   await sendWebResponse(response, webResponse);
 }
 
-function createModeStatuses(): Record<DemoMode, ModeStatus> {
-  const permit2Blockers: string[] = [];
-  const hashBlockers: string[] = [];
-
-  if (!secretKey) {
-    const message =
-      'Set MPP_SECRET_KEY before retrying. Challenge issuance requires a stable secret key for both demo modes.';
-    permit2Blockers.push(message);
-    hashBlockers.push(message);
-  }
-
-  if (!settlementAccount) {
-    permit2Blockers.push(
-      'Set MEGAETH_SETTLEMENT_PRIVATE_KEY before retrying. Direct Permit2 settlement requires a funded settlement wallet.',
-    );
-  }
-
-  if (!recipientAddress) {
-    hashBlockers.push(
-      'Set MEGAETH_RECIPIENT_ADDRESS or MEGAETH_SETTLEMENT_PRIVATE_KEY before retrying. Hash-mode verification needs a configured recipient address.',
-    );
-  }
-
-  return {
-    hash: {
-      blockers: hashBlockers,
-      feePayer: false,
-      label: 'Client broadcasts hash',
-      ready: hashBlockers.length === 0,
-      ...(recipientAddress ? { recipient: recipientAddress } : {}),
-      settlement: 'client',
-    },
-    permit2: {
-      blockers: permit2Blockers,
-      feePayer,
-      label: 'Server settles Permit2',
-      ready: permit2Blockers.length === 0,
-      ...(settlementAccount ? { recipient: settlementAccount.address } : {}),
-      settlement: 'server',
-    },
-  };
-}
-
-function resolveTokenMetadata(parameters: {
-  testnet: boolean;
-  tokenAddress: `0x${string}`;
-}): {
-  decimals: number;
-  symbol: string;
-} {
-  const configuredDecimals = process.env.MEGAETH_TOKEN_DECIMALS;
-  const configuredSymbol = process.env.MEGAETH_TOKEN_SYMBOL;
-  if (configuredDecimals && configuredSymbol) {
-    return {
-      decimals: Number(configuredDecimals),
-      symbol: configuredSymbol,
-    };
-  }
-
-  if (parameters.testnet && parameters.tokenAddress.toLowerCase() === TESTNET_USDC.address) {
-    return TESTNET_USDC;
-  }
-
-  return DEFAULT_USDM;
-}
-
-function getModeRuntime(mode: DemoMode): ModeStatus & { mppx?: typeof permit2Mppx } {
+function getModeRuntime(mode: 'permit2' | 'hash') {
   return mode === 'permit2'
     ? {
-        ...modeStatuses.permit2,
+        ...environment.modeStatuses.permit2,
         mppx: permit2Mppx,
       }
     : {
-        ...modeStatuses.hash,
+        ...environment.modeStatuses.hash,
         mppx: hashMppx,
       };
-}
-
-function resolveDemoStatus(modes: Record<DemoMode, ModeStatus>): string {
-  if (modes.permit2.ready && modes.hash.ready) {
-    return 'ready';
-  }
-
-  if (modes.permit2.ready || modes.hash.ready) {
-    return 'partial-configuration';
-  }
-
-  return 'configuration-required';
-}
-
-function resolveMode(value: unknown): DemoMode | undefined {
-  if (value === 'permit2' || value === 'hash') {
-    return value;
-  }
-
-  return undefined;
-}
-
-function getWarnings(): string[] {
-  const warnings = Array.from(
-    new Set([
-      ...modeStatuses.permit2.blockers,
-      ...modeStatuses.hash.blockers,
-      ...(!splitRecipient
-        ? [
-            'Set MEGAETH_SPLIT_RECIPIENT if you want the split-payment demo route to fan out a second transfer.',
-          ]
-        : []),
-    ]),
-  );
-
-  if (!warnings.length) {
-    return ['The demo server is configured for both direct Permit2 and hash-mode requests.'];
-  }
-
-  return warnings;
 }
 
 function toWebRequest(request: ExpressRequest): Request {
@@ -401,7 +235,7 @@ function toWebRequest(request: ExpressRequest): Request {
     headers.set(key, Array.isArray(value) ? value.join(', ') : value);
   }
 
-  return new Request(new URL(request.originalUrl, apiOrigin).toString(), {
+  return new Request(new URL(request.originalUrl, environment.apiOrigin).toString(), {
     headers,
     method: request.method,
   });

@@ -42,8 +42,34 @@ export function resolveChainId(parameters: {
   chainId?: number | undefined;
   testnet?: boolean | undefined;
 }): number {
-  if (parameters.testnet) return MEGAETH_TESTNET_CHAIN_ID;
-  return parameters.chainId ?? MEGAETH_MAINNET_CHAIN_ID;
+  const { chainId, testnet } = parameters;
+  const derivedChainId =
+    testnet === undefined
+      ? undefined
+      : testnet
+        ? MEGAETH_TESTNET_CHAIN_ID
+        : MEGAETH_MAINNET_CHAIN_ID;
+
+  if (chainId !== undefined && derivedChainId !== undefined) {
+    if (chainId !== derivedChainId) {
+      throw new Error(
+        `Use chainId "${derivedChainId}" when testnet is set to "${String(testnet)}".`,
+      );
+    }
+    return chainId;
+  }
+
+  if (chainId !== undefined) {
+    return chainId;
+  }
+
+  if (derivedChainId !== undefined) {
+    return derivedChainId;
+  }
+
+  throw new Error(
+    "Provide chainId or testnet so the SDK can resolve the MegaETH network explicitly.",
+  );
 }
 
 export function resolveChain(chainId: number): Chain {
@@ -62,21 +88,17 @@ export async function resolvePublicClient(
   chainId: number,
 ): Promise<PublicClient> {
   if (parameters.getPublicClient) {
-    return await parameters.getPublicClient({ chainId });
+    const publicClient = await parameters.getPublicClient({ chainId });
+    assertClientChain(publicClient, chainId, "publicClient");
+    return publicClient;
   }
 
   if (parameters.publicClient) {
+    assertClientChain(parameters.publicClient, chainId, "publicClient");
     return parameters.publicClient;
   }
 
-  const rpcUrl =
-    parameters.rpcUrls?.[chainId] ??
-    DEFAULT_RPC_URLS[chainId as keyof typeof DEFAULT_RPC_URLS];
-  if (!rpcUrl) {
-    throw new Error(
-      `No RPC URL is configured for chainId "${chainId}". Provide rpcUrls, getPublicClient, or publicClient.`,
-    );
-  }
+  const rpcUrl = resolveRpcUrl(parameters.rpcUrls, chainId);
 
   return createPublicClient({
     chain: resolveChain(chainId),
@@ -89,10 +111,13 @@ export async function resolveWalletClient(
   chainId: number,
 ): Promise<WalletClient> {
   if (parameters.getWalletClient) {
-    return await parameters.getWalletClient({ chainId });
+    const walletClient = await parameters.getWalletClient({ chainId });
+    assertClientChain(walletClient, chainId, "walletClient");
+    return walletClient;
   }
 
   if (parameters.walletClient) {
+    assertClientChain(parameters.walletClient, chainId, "walletClient");
     return parameters.walletClient;
   }
 
@@ -102,14 +127,7 @@ export async function resolveWalletClient(
     );
   }
 
-  const rpcUrl =
-    parameters.rpcUrls?.[chainId] ??
-    DEFAULT_RPC_URLS[chainId as keyof typeof DEFAULT_RPC_URLS];
-  if (!rpcUrl) {
-    throw new Error(
-      `No RPC URL is configured for chainId "${chainId}". Provide rpcUrls, getWalletClient, or walletClient.`,
-    );
-  }
+  const rpcUrl = resolveRpcUrl(parameters.rpcUrls, chainId);
 
   return createWalletClient({
     account: parameters.account,
@@ -145,4 +163,38 @@ export function resolveAccount(
   }
 
   return parseAccount(account);
+}
+
+function resolveRpcUrl(
+  rpcUrls: Partial<Record<number, string>> | undefined,
+  chainId: number,
+): string {
+  const rpcUrl =
+    rpcUrls?.[chainId] ??
+    DEFAULT_RPC_URLS[chainId as keyof typeof DEFAULT_RPC_URLS];
+  if (!rpcUrl) {
+    throw new Error(
+      `No RPC URL is configured for chainId "${chainId}". Provide rpcUrls, getPublicClient, publicClient, getWalletClient, or walletClient.`,
+    );
+  }
+
+  return rpcUrl;
+}
+
+function assertClientChain(
+  client: { chain?: Chain | undefined },
+  chainId: number,
+  label: "publicClient" | "walletClient",
+): void {
+  if (!client.chain) {
+    throw new Error(
+      `Provide a ${label} configured for chainId "${chainId}". The current client does not expose chain metadata.`,
+    );
+  }
+
+  if (client.chain.id !== chainId) {
+    throw new Error(
+      `Provide a ${label} configured for chainId "${chainId}" instead of "${client.chain.id}".`,
+    );
+  }
 }

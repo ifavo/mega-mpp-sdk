@@ -82,7 +82,8 @@ const mppx = Mppx.create({
       walletClient,
       publicClient,
       account,
-      broadcast: false,
+      credentialMode: 'permit2',
+      submissionMode: 'auto',
     }),
   ],
 })
@@ -94,7 +95,8 @@ const response = await mppx.fetch('https://api.example.com/paid-resource')
 
 - The draft MegaETH charge spec does not currently expose a distinct spender field for direct Permit2 settlement. This SDK therefore signs the challenge `recipient` as the spender in direct mode, which means the settlement wallet and recipient must match.
 - Split payments use a batch Permit2 extension in the SDK implementation when multiple transfer legs are present. The single-transfer path remains draft-compatible.
-- `eth_sendRawTransactionSync` is preferred when the MegaETH RPC supports it. The SDK falls back to `realtime_sendRawTransaction`, then to a standard send-and-wait flow.
+- Chain selection is explicit. Every charge request must resolve a MegaETH network through either `methodDetails.chainId` or `methodDetails.testnet`; the SDK does not assume mainnet anymore.
+- `submissionMode` now lets callers choose `auto`, `sync`, `realtime`, or `sendAndWait`. `auto` only falls back when the current transport explicitly reports an unsupported method.
 - Receipt headers stay `mppx`-compatible. The serialized `Payment-Receipt` header contains `method`, `reference`, `status`, `timestamp`, and optional `externalId`; it does not embed `challengeId`.
 
 ## Permit2 Approval
@@ -102,7 +104,7 @@ const response = await mppx.fetch('https://api.example.com/paid-resource')
 Before running a funded local, live, or demo flow, approve Permit2 once for the token you want to spend. The payer wallet needs:
 
 - the payment token balance
-- enough ETH for MegaETH gas when you use `hash` mode
+- enough ETH for MegaETH gas when you use `credentialMode: 'hash'`
 - an ERC-20 approval that lets Permit2 spend at least the amount you plan to test
 
 For the Carrot testnet demo, use testnet USDC at `0x75139a9559c9cd1ad69b7e239c216151d2c81e6f` instead of the default USDm example token and set `MEGAETH_TOKEN_ADDRESS` explicitly.

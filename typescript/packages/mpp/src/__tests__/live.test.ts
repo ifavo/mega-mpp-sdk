@@ -6,7 +6,6 @@ import {
   zeroAddress,
   type Address,
   type Hex,
-  type PublicClient,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { readContract } from "viem/actions";
@@ -22,6 +21,7 @@ import {
 } from "../constants.js";
 import { charge as clientCharge } from "../client/Charge.js";
 import { charge as serverCharge } from "../server/Charge.js";
+import { type SubmissionMode } from "../utils/rpc.js";
 
 type ChargeChallenge = Challenge.Challenge<
   SharedMethods.ChargeRequest,
@@ -54,6 +54,9 @@ const fundedRecipient = process.env.MEGAETH_LIVE_RECIPIENT as
   | undefined;
 const fundedAmount = process.env.MEGAETH_LIVE_AMOUNT ?? "1";
 const fundedConfigured = Boolean(fundedPayerKey && fundedRecipient);
+const submissionMode = resolveSubmissionMode(
+  process.env.MEGAETH_SUBMISSION_MODE,
+);
 
 describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
   describe("readonly checks", () => {
@@ -97,21 +100,13 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
       expect(typeof allowance).toBe("bigint");
     });
 
-    it("optionally detects eth_sendRawTransactionSync support", async () => {
-      const supportsSyncSubmission =
-        await detectSyncSubmissionSupport(publicClient);
-
-      if (process.env.MEGAETH_EXPECT_SYNC_RPC === "true") {
-        expect(supportsSyncSubmission).toBe(true);
-        return;
-      }
-
-      expect(typeof supportsSyncSubmission).toBe("boolean");
+    it("accepts an explicit live submission mode configuration", () => {
+      expect(submissionMode).toMatch(/^(auto|sync|realtime|sendAndWait)$/);
     });
   });
 
   describe.skipIf(!fundedConfigured)("funded e2e checks", () => {
-    it("settles a live hash-mode charge end-to-end when funded credentials are configured", async () => {
+    it("settles a live transaction-hash credential flow end to end when funded credentials are configured", async () => {
       if (!fundedPayerKey || !fundedRecipient) {
         throw new Error(
           "Set MEGAETH_LIVE_PAYER_PRIVATE_KEY and MEGAETH_LIVE_RECIPIENT before running the funded MegaETH live suite.",
@@ -133,8 +128,9 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
       const store = Store.memory();
       const clientMethod = clientCharge({
         account: payer,
-        broadcast: true,
+        credentialMode: "hash",
         publicClient,
+        submissionMode,
         walletClient,
       });
       const serverMethod = serverCharge({
@@ -204,46 +200,25 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
   });
 });
 
-async function detectSyncSubmissionSupport(
-  client: PublicClient,
-): Promise<boolean> {
-  const request = client.request as (parameters: {
-    method: string;
-    params?: readonly unknown[] | undefined;
-  }) => Promise<unknown>;
-
-  try {
-    await request({
-      method: "eth_sendRawTransactionSync",
-      params: ["0x00"],
-    });
-    return true;
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message.toLowerCase()
-        : String(error).toLowerCase();
-
-    if (
-      message.includes("method not found") ||
-      message.includes("does not exist") ||
-      message.includes("unsupported")
-    ) {
-      return false;
-    }
-
-    if (
-      message.includes("invalid") ||
-      message.includes("rlp") ||
-      message.includes("transaction")
-    ) {
-      return true;
-    }
-
-    throw error;
-  }
-}
-
 function hasBytecode(code: Hex | undefined): boolean {
   return Boolean(code && code !== "0x");
+}
+
+function resolveSubmissionMode(value: string | undefined): SubmissionMode {
+  if (!value) {
+    return "auto";
+  }
+
+  if (
+    value === "auto" ||
+    value === "sync" ||
+    value === "realtime" ||
+    value === "sendAndWait"
+  ) {
+    return value;
+  }
+
+  throw new Error(
+    "Set MEGAETH_SUBMISSION_MODE to auto, sync, realtime, or sendAndWait before running the live suite.",
+  );
 }
