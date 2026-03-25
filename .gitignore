@@ -14,3 +14,6 @@ typescript/node_modules
 typescript/packages/mpp/dist
 typescript/.vitest
 typescript/.tmp
+contracts/cache
+contracts/out
+contracts/broadcast

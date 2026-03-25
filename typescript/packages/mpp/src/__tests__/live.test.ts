@@ -8,7 +8,11 @@ import {
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { readContract } from "viem/actions";
+import {
+  readContract,
+  waitForTransactionReceipt,
+  writeContract,
+} from "viem/actions";
 import { describe, expect, it } from "vitest";
 
 import { ERC20_ABI } from "../abi.js";
@@ -20,8 +24,11 @@ import {
   megaethTestnet,
 } from "../constants.js";
 import { charge as clientCharge } from "../client/Charge.js";
+import { session as clientSession } from "../client/Session.js";
 import { charge as serverCharge } from "../server/Charge.js";
-import { type SubmissionMode } from "../utils/rpc.js";
+import { session as serverSession } from "../server/Session.js";
+import { SESSION_ESCROW_ABI } from "../session/abi.js";
+import { parseSubmissionMode } from "../utils/submissionMode.js";
 
 type ChargeChallenge = Challenge.Challenge<
   SharedMethods.ChargeRequest,
@@ -32,6 +39,17 @@ type ChargeChallenge = Challenge.Challenge<
 type ChargeCredential = Credential.Credential<
   SharedMethods.ChargeCredentialPayload,
   ChargeChallenge
+>;
+
+type SessionChallenge = Challenge.Challenge<
+  SharedMethods.SessionRequest,
+  typeof SharedMethods.session.intent,
+  typeof SharedMethods.session.name
+>;
+
+type SessionCredential = Credential.Credential<
+  SharedMethods.SessionCredentialPayload,
+  SessionChallenge
 >;
 
 const shouldRunLive = process.env.RUN_MEGAETH_LIVE === "true";
@@ -54,8 +72,28 @@ const fundedRecipient = process.env.MEGAETH_LIVE_RECIPIENT as
   | undefined;
 const fundedAmount = process.env.MEGAETH_LIVE_AMOUNT ?? "1";
 const fundedConfigured = Boolean(fundedPayerKey && fundedRecipient);
-const submissionMode = resolveSubmissionMode(
+const sessionEscrowAddress = process.env.MEGAETH_SESSION_ESCROW_ADDRESS as
+  | Address
+  | undefined;
+const sessionPayerKey = process.env.MEGAETH_LIVE_SESSION_PAYER_PRIVATE_KEY as
+  | Hex
+  | undefined;
+const sessionServerKey = process.env.MEGAETH_LIVE_SESSION_SERVER_PRIVATE_KEY as
+  | Hex
+  | undefined;
+const sessionAmount = process.env.MEGAETH_LIVE_SESSION_AMOUNT ?? "100000";
+const sessionDeposit =
+  process.env.MEGAETH_LIVE_SESSION_DEPOSIT ??
+  (BigInt(sessionAmount) * 3n).toString();
+const fundedSessionConfigured = Boolean(
+  sessionEscrowAddress && sessionPayerKey && sessionServerKey,
+);
+const submissionMode = parseSubmissionMode(
   process.env.MEGAETH_SUBMISSION_MODE,
+  {
+    defaultMode: "auto",
+    variableName: "MEGAETH_SUBMISSION_MODE",
+  },
 );
 
 describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
@@ -102,6 +140,39 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
 
     it("accepts an explicit live submission mode configuration", () => {
       expect(submissionMode).toMatch(/^(auto|sync|realtime|sendAndWait)$/);
+    });
+  });
+
+  describe.skipIf(!sessionEscrowAddress)("session readonly checks", () => {
+    it("verifies that the configured session escrow contract is deployed", async () => {
+      if (!sessionEscrowAddress) {
+        throw new Error(
+          "Set MEGAETH_SESSION_ESCROW_ADDRESS before running the MegaETH session readonly checks.",
+        );
+      }
+
+      const escrowCode = await publicClient.getBytecode({
+        address: sessionEscrowAddress,
+      });
+
+      expect(hasBytecode(escrowCode)).toBe(true);
+    });
+
+    it("reads the session escrow domain separator", async () => {
+      if (!sessionEscrowAddress) {
+        throw new Error(
+          "Set MEGAETH_SESSION_ESCROW_ADDRESS before reading the session escrow domain separator.",
+        );
+      }
+
+      const domainSeparator = await readContract(publicClient, {
+        abi: SESSION_ESCROW_ABI,
+        address: sessionEscrowAddress,
+        functionName: "domainSeparator",
+      });
+
+      expect(typeof domainSeparator).toBe("string");
+      expect(domainSeparator).toMatch(/^0x[0-9a-fA-F]{64}$/);
     });
   });
 
@@ -198,27 +269,209 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
       expect(afterBalance - beforeBalance).toBe(amount);
     });
   });
+
+  describe.skipIf(!fundedSessionConfigured)("funded session e2e checks", () => {
+    it("opens, updates, settles, and closes a live MegaETH session channel", async () => {
+      if (!sessionEscrowAddress || !sessionPayerKey || !sessionServerKey) {
+        throw new Error(
+          "Set MEGAETH_SESSION_ESCROW_ADDRESS, MEGAETH_LIVE_SESSION_PAYER_PRIVATE_KEY, and MEGAETH_LIVE_SESSION_SERVER_PRIVATE_KEY before running the live session suite.",
+        );
+      }
+
+      const payer = privateKeyToAccount(sessionPayerKey);
+      const server = privateKeyToAccount(sessionServerKey);
+      if (payer.address === server.address) {
+        throw new Error(
+          "Use different payer and server keys before running the funded MegaETH session suite.",
+        );
+      }
+
+      const payerWallet = createWalletClient({
+        account: payer,
+        chain,
+        transport: http(rpcUrl),
+      });
+      const serverWallet = createWalletClient({
+        account: server,
+        chain,
+        transport: http(rpcUrl),
+      });
+
+      await waitForTransactionReceipt(publicClient, {
+        hash: await writeContract(payerWallet, {
+          abi: ERC20_ABI,
+          account: payer,
+          address: tokenAddress,
+          chain,
+          functionName: "approve",
+          args: [sessionEscrowAddress, BigInt(sessionDeposit)],
+        }),
+      });
+
+      const store = Store.memory();
+      const clientMethod = clientSession({
+        account: payer,
+        deposit: sessionDeposit,
+        publicClient,
+        walletClient: payerWallet,
+      });
+      const serverMethod = serverSession({
+        account: server,
+        chainId: chain.id,
+        currency: tokenAddress,
+        escrowContract: sessionEscrowAddress,
+        publicClient,
+        recipient: server.address,
+        rpcUrls: { [chain.id]: rpcUrl },
+        settlement: {
+          close: { enabled: true },
+          periodic: {
+            intervalSeconds: 3600,
+            minUnsettledAmount: (BigInt(sessionAmount) * 2n).toString(),
+          },
+        },
+        store,
+        testnet,
+        unitType: "request",
+        walletClient: serverWallet,
+      });
+
+      const beforeBalance = await readContract(publicClient, {
+        abi: ERC20_ABI,
+        address: tokenAddress,
+        functionName: "balanceOf",
+        args: [server.address],
+      });
+
+      const openChallenge = await issueLiveSessionChallenge(serverMethod, {
+        amount: sessionAmount,
+        currency: tokenAddress,
+        escrowContract: sessionEscrowAddress,
+        recipient: server.address,
+        suggestedDeposit: sessionDeposit,
+      });
+      const openCredential = deserializeSessionCredential(
+        await clientMethod.createCredential({
+          challenge: openChallenge,
+          context: {},
+        }),
+      );
+      const openReceipt = await serverMethod.verify({
+        credential: openCredential,
+        request: openChallenge.request,
+      });
+      const channelId = (
+        openCredential.payload as SharedMethods.SessionOpenPayload
+      ).channelId as Hex;
+
+      const voucherChallenge = await issueLiveSessionChallenge(serverMethod, {
+        amount: sessionAmount,
+        currency: tokenAddress,
+        escrowContract: sessionEscrowAddress,
+        recipient: server.address,
+      });
+      const voucherCredential = deserializeSessionCredential(
+        await clientMethod.createCredential({
+          challenge: voucherChallenge,
+          context: {},
+        }),
+      );
+      const voucherReceipt = await serverMethod.verify({
+        credential: voucherCredential,
+        request: voucherChallenge.request,
+      });
+
+      const afterSettlementBalance = await readContract(publicClient, {
+        abi: ERC20_ABI,
+        address: tokenAddress,
+        functionName: "balanceOf",
+        args: [server.address],
+      });
+
+      const closeChallenge = await issueLiveSessionChallenge(serverMethod, {
+        amount: sessionAmount,
+        currency: tokenAddress,
+        escrowContract: sessionEscrowAddress,
+        recipient: server.address,
+      });
+      const closeCredential = deserializeSessionCredential(
+        await clientMethod.createCredential({
+          challenge: closeChallenge,
+          context: {
+            action: "close",
+            channelId,
+          },
+        }),
+      );
+      await serverMethod.verify({
+        credential: closeCredential,
+        request: closeChallenge.request,
+      });
+
+      const channel = await readContract(publicClient, {
+        abi: SESSION_ESCROW_ABI,
+        address: sessionEscrowAddress,
+        functionName: "getChannel",
+        args: [channelId],
+      });
+
+      expect(openReceipt.reference).toBe(channelId);
+      expect(voucherReceipt.reference).toBe(channelId);
+      expect(afterSettlementBalance - beforeBalance).toBe(
+        BigInt(sessionAmount) * 2n,
+      );
+      expect((channel as { finalized: boolean }).finalized).toBe(true);
+    });
+  });
 });
 
 function hasBytecode(code: Hex | undefined): boolean {
   return Boolean(code && code !== "0x");
 }
 
-function resolveSubmissionMode(value: string | undefined): SubmissionMode {
-  if (!value) {
-    return "auto";
+async function issueLiveSessionChallenge(
+  serverMethod: ReturnType<typeof serverSession>,
+  parameters: {
+    amount: string;
+    currency: Address;
+    escrowContract: Address;
+    recipient: Address;
+    suggestedDeposit?: string | undefined;
+  },
+): Promise<SessionChallenge> {
+  const request = await serverMethod.request?.({
+    credential: undefined,
+    request: {
+      amount: parameters.amount,
+      currency: parameters.currency,
+      recipient: parameters.recipient,
+      ...(parameters.suggestedDeposit
+        ? { suggestedDeposit: parameters.suggestedDeposit }
+        : {}),
+      unitType: "request",
+      methodDetails: {
+        chainId: chain.id,
+        escrowContract: parameters.escrowContract,
+      },
+    },
+  });
+
+  if (!request) {
+    throw new Error(
+      "Create a live MegaETH session request successfully before issuing a live session challenge.",
+    );
   }
 
-  if (
-    value === "auto" ||
-    value === "sync" ||
-    value === "realtime" ||
-    value === "sendAndWait"
-  ) {
-    return value;
-  }
+  return Challenge.fromMethod(SharedMethods.session, {
+    expires: new Date(Date.now() + 300_000).toISOString(),
+    realm: "live.megaeth.local",
+    request,
+    secretKey: "megaeth-live-session-secret",
+  }) as SessionChallenge;
+}
 
-  throw new Error(
-    "Set MEGAETH_SUBMISSION_MODE to auto, sync, realtime, or sendAndWait before running the live suite.",
-  );
+function deserializeSessionCredential(value: string): SessionCredential {
+  return Credential.deserialize<SharedMethods.SessionCredentialPayload>(
+    value,
+  ) as SessionCredential;
 }

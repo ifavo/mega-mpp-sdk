@@ -1,0 +1,157 @@
+export const SESSION_ESCROW_ABI = [
+  {
+    inputs: [
+      { internalType: "address", name: "payee", type: "address" },
+      { internalType: "address", name: "token", type: "address" },
+      { internalType: "uint256", name: "deposit", type: "uint256" },
+      { internalType: "bytes32", name: "salt", type: "bytes32" },
+      { internalType: "address", name: "authorizedSigner", type: "address" },
+    ],
+    name: "open",
+    outputs: [{ internalType: "bytes32", name: "channelId", type: "bytes32" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "bytes32", name: "channelId", type: "bytes32" },
+      { internalType: "uint256", name: "cumulativeAmount", type: "uint256" },
+      { internalType: "bytes", name: "signature", type: "bytes" },
+    ],
+    name: "settle",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "bytes32", name: "channelId", type: "bytes32" },
+      { internalType: "uint256", name: "amount", type: "uint256" },
+    ],
+    name: "topUp",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "bytes32", name: "channelId", type: "bytes32" },
+      { internalType: "uint256", name: "cumulativeAmount", type: "uint256" },
+      { internalType: "bytes", name: "signature", type: "bytes" },
+    ],
+    name: "close",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "bytes32", name: "channelId", type: "bytes32" }],
+    name: "requestClose",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "bytes32", name: "channelId", type: "bytes32" }],
+    name: "withdraw",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "bytes32", name: "channelId", type: "bytes32" }],
+    name: "getChannel",
+    outputs: [
+      {
+        components: [
+          { internalType: "address", name: "payer", type: "address" },
+          { internalType: "address", name: "payee", type: "address" },
+          { internalType: "address", name: "token", type: "address" },
+          {
+            internalType: "address",
+            name: "authorizedSigner",
+            type: "address",
+          },
+          { internalType: "uint256", name: "deposit", type: "uint256" },
+          { internalType: "uint256", name: "settled", type: "uint256" },
+          { internalType: "uint64", name: "openedAt", type: "uint64" },
+          {
+            internalType: "uint64",
+            name: "closeRequestedAt",
+            type: "uint64",
+          },
+          { internalType: "bool", name: "finalized", type: "bool" },
+        ],
+        internalType: "struct MegaMppSessionEscrow.Channel",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "bytes32[]", name: "channelIds", type: "bytes32[]" },
+    ],
+    name: "getChannelsBatch",
+    outputs: [
+      {
+        components: [
+          { internalType: "address", name: "payer", type: "address" },
+          { internalType: "address", name: "payee", type: "address" },
+          { internalType: "address", name: "token", type: "address" },
+          {
+            internalType: "address",
+            name: "authorizedSigner",
+            type: "address",
+          },
+          { internalType: "uint256", name: "deposit", type: "uint256" },
+          { internalType: "uint256", name: "settled", type: "uint256" },
+          { internalType: "uint64", name: "openedAt", type: "uint64" },
+          {
+            internalType: "uint64",
+            name: "closeRequestedAt",
+            type: "uint64",
+          },
+          { internalType: "bool", name: "finalized", type: "bool" },
+        ],
+        internalType: "struct MegaMppSessionEscrow.Channel[]",
+        name: "channels",
+        type: "tuple[]",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "address", name: "payer", type: "address" },
+      { internalType: "address", name: "payee", type: "address" },
+      { internalType: "address", name: "token", type: "address" },
+      { internalType: "address", name: "authorizedSigner", type: "address" },
+      { internalType: "bytes32", name: "salt", type: "bytes32" },
+    ],
+    name: "computeChannelId",
+    outputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "bytes32", name: "channelId", type: "bytes32" },
+      { internalType: "uint256", name: "cumulativeAmount", type: "uint256" },
+    ],
+    name: "getVoucherDigest",
+    outputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "domainSeparator",
+    outputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;

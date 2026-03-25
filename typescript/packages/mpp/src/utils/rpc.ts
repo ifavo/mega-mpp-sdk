@@ -24,8 +24,7 @@ import type {
 } from "viem";
 
 import { resolveChain } from "./clients.js";
-
-export type SubmissionMode = "auto" | "sync" | "realtime" | "sendAndWait";
+import type { SubmissionMode } from "./submissionMode.js";
 
 const UNSUPPORTED_METHOD_CODES = new Set([-32601, 4200]);
 const REALTIME_TRANSACTION_EXPIRED_PATTERN = /realtime transaction expired/i;

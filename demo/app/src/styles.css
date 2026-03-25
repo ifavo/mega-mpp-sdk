@@ -168,6 +168,17 @@ pre {
   margin-bottom: 1rem;
 }
 
+.toggle-group,
+.button-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.toggle-group {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 1rem;
+}
+
 .field span {
   color: var(--muted);
   font-size: 0.86rem;
@@ -234,6 +245,39 @@ pre {
 .field select:focus-visible {
   outline: 3px solid rgba(249, 115, 22, 0.2);
   outline-offset: 2px;
+}
+
+.toggle-button {
+  min-height: 3rem;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: var(--surface-muted);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.85rem 1rem;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.toggle-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(194, 65, 12, 0.32);
+}
+
+.toggle-button:focus-visible {
+  outline: 3px solid rgba(249, 115, 22, 0.2);
+  outline-offset: 2px;
+}
+
+.toggle-button-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 10px 24px rgba(249, 115, 22, 0.12);
+  color: var(--accent-strong);
 }
 
 .callout {
@@ -320,7 +364,23 @@ pre {
   color: #255b2b;
 }
 
+.status-closed {
+  background: #dbeedc;
+  color: #255b2b;
+}
+
+.status-opened,
+.status-updated,
+.status-toppedUp {
+  background: #fff0e4;
+  color: var(--accent-strong);
+}
+
 .status-confirming,
+.status-opening,
+.status-updating,
+.status-toppingUp,
+.status-closing,
 .status-paying,
 .status-signed,
 .status-signing,
@@ -359,6 +419,10 @@ pre {
 
   .facts-grid,
   .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .button-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

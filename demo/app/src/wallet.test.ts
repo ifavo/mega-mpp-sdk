@@ -1,38 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { DemoConfig } from "./types.js";
+import { createDemoConfigFixture } from "../../shared/testFixtures.js";
 import { connectWalletForDemoChain } from "./wallet.js";
 
-const config: DemoConfig = {
-  apiOrigin: "http://localhost:3001",
-  canSettle: true,
-  chainId: 6343,
+const config = createDemoConfigFixture({
   feePayer: false,
   modes: {
-    hash: {
-      blockers: [],
-      feePayer: false,
-      label: "Client broadcasts Permit2 transaction",
-      ready: true,
-      transactionSender: "client",
-    },
+    hash: createDemoConfigFixture().modes.hash,
     permit2: {
-      blockers: [],
+      ...createDemoConfigFixture().modes.permit2,
       feePayer: false,
-      label: "Server broadcasts Permit2 transaction",
-      ready: true,
-      transactionSender: "server",
     },
   },
-  permit2Address: "0x3333333333333333333333333333333333333333",
-  rpcUrl: "https://carrot.megaeth.com/rpc",
-  submissionMode: "realtime",
-  splitAmount: "50000",
-  testnet: true,
-  tokenAddress: "0x1111111111111111111111111111111111111111",
-  tokenDecimals: 6,
-  tokenSymbol: "USDC",
-};
+  recipient: undefined,
+});
 
 describe("connectWalletForDemoChain", () => {
   it("guides the user to install a wallet when none is available", async () => {

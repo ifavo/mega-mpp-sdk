@@ -1,6 +1,12 @@
+import type { DemoSessionState } from "../../shared/types.js";
+
 export type {
   DemoConfig,
   DemoConfigResponse,
+  DemoEndpoint,
+  DemoEndpointKind,
+  DemoSessionResourceResponse,
+  DemoSessionState,
   DemoHealthResponse,
   DemoMode,
   DemoSubmissionMode,
@@ -26,4 +32,29 @@ export type ChargeProgress =
 export type ChargeResult = {
   receipt: string | null;
   resource: unknown;
+};
+
+export type SessionProgress =
+  | {
+      type: "idle";
+    }
+  | {
+      detail?: string;
+      type:
+        | "challenge"
+        | "opening"
+        | "opened"
+        | "updating"
+        | "updated"
+        | "toppingUp"
+        | "toppedUp"
+        | "closing"
+        | "closed"
+        | "error";
+    };
+
+export type SessionResult = {
+  receipt: string | null;
+  resource: unknown;
+  session: DemoSessionState | null;
 };

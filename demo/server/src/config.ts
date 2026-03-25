@@ -5,12 +5,21 @@ import {
   megaeth as megaethChain,
   megaethTestnet,
 } from "../../../typescript/packages/mpp/src/constants.js";
-import type { SubmissionMode } from "../../../typescript/packages/mpp/src/utils/rpc.js";
+import {
+  describeSubmissionMode,
+  parseSubmissionMode,
+  type SubmissionMode,
+} from "../../../typescript/packages/mpp/src/utils/submissionMode.js";
+import {
+  demoDescriptions,
+  demoModeLabels,
+} from "../../shared/descriptors.js";
 import type {
   DemoAddress,
   DemoConfig,
   DemoHealthStatus,
   DemoMode,
+  DemoSessionConfig,
   ModeStatus,
 } from "../../shared/types.js";
 import type { Address } from "viem";
@@ -23,6 +32,12 @@ export type DemoEnvironmentBindings = {
   MEGAETH_RECIPIENT_ADDRESS?: DemoAddress | undefined;
   MEGAETH_RPC_URL?: string | undefined;
   MEGAETH_SUBMISSION_MODE?: string | undefined;
+  MEGAETH_SESSION_ALLOW_DELEGATED_SIGNER?: string | undefined;
+  MEGAETH_SESSION_ESCROW_ADDRESS?: DemoAddress | undefined;
+  MEGAETH_SESSION_MIN_VOUCHER_DELTA?: string | undefined;
+  MEGAETH_SESSION_SETTLE_INTERVAL_SECONDS?: string | undefined;
+  MEGAETH_SESSION_SETTLE_MIN_UNSETTLED_AMOUNT?: string | undefined;
+  MEGAETH_SESSION_SUGGESTED_DEPOSIT?: string | undefined;
   MEGAETH_SETTLEMENT_PRIVATE_KEY?: DemoAddress | undefined;
   MEGAETH_SPLIT_AMOUNT?: string | undefined;
   MEGAETH_SPLIT_RECIPIENT?: DemoAddress | undefined;
@@ -42,6 +57,7 @@ export type DemoEnvironment = {
   permit2Address: `0x${string}`;
   recipientAddress?: `0x${string}` | undefined;
   rpcUrl: string;
+  session: DemoSessionConfig;
   secretKey?: string | undefined;
   settlementAccount?: ReturnType<typeof privateKeyToAccount> | undefined;
   submissionMode: SubmissionMode;
@@ -78,9 +94,24 @@ export function createDemoEnvironment(parameters: {
   const splitAmount = bindings.MEGAETH_SPLIT_AMOUNT ?? "50000";
   const feePayer = bindings.MEGAETH_FEE_PAYER !== "false";
   const secretKey = bindings.MPP_SECRET_KEY;
-  const submissionMode = resolveSubmissionMode(
-    bindings.MEGAETH_SUBMISSION_MODE,
+  const submissionMode = parseSubmissionMode(bindings.MEGAETH_SUBMISSION_MODE, {
+    defaultMode: "realtime",
+    variableName: "MEGAETH_SUBMISSION_MODE",
+  });
+  const sessionEscrowAddress = bindings.MEGAETH_SESSION_ESCROW_ADDRESS as
+    | `0x${string}`
+    | undefined;
+  const sessionSuggestedDeposit =
+    bindings.MEGAETH_SESSION_SUGGESTED_DEPOSIT ?? "500000";
+  const sessionMinVoucherDelta =
+    bindings.MEGAETH_SESSION_MIN_VOUCHER_DELTA ?? "100000";
+  const sessionSettlementMinUnsettledAmount =
+    bindings.MEGAETH_SESSION_SETTLE_MIN_UNSETTLED_AMOUNT ?? "200000";
+  const sessionSettlementIntervalSeconds = Number(
+    bindings.MEGAETH_SESSION_SETTLE_INTERVAL_SECONDS ?? 3600,
   );
+  const sessionAllowDelegatedSigner =
+    bindings.MEGAETH_SESSION_ALLOW_DELEGATED_SIGNER !== "false";
   const settlementKey = bindings.MEGAETH_SETTLEMENT_PRIVATE_KEY as
     | `0x${string}`
     | undefined;
@@ -103,6 +134,17 @@ export function createDemoEnvironment(parameters: {
     permit2Address,
     ...(recipientAddress ? { recipientAddress } : {}),
     rpcUrl,
+    session: createSessionConfig({
+      allowDelegatedSigner: sessionAllowDelegatedSigner,
+      escrowContract: sessionEscrowAddress,
+      recipientAddress,
+      secretKey,
+      settlementAccount,
+      settlementIntervalSeconds: sessionSettlementIntervalSeconds,
+      settlementMinUnsettledAmount: sessionSettlementMinUnsettledAmount,
+      suggestedDeposit: sessionSuggestedDeposit,
+      minVoucherDelta: sessionMinVoucherDelta,
+    }),
     ...(secretKey ? { secretKey } : {}),
     ...(settlementAccount ? { settlementAccount } : {}),
     submissionMode,
@@ -154,6 +196,7 @@ export function createDemoConfig(environment: DemoEnvironment): DemoConfig {
       ? { recipient: environment.recipientAddress }
       : {}),
     rpcUrl: environment.rpcUrl,
+    session: environment.session,
     submissionMode: environment.submissionMode,
     splitAmount: environment.splitAmount,
     ...(environment.splitRecipient
@@ -163,6 +206,67 @@ export function createDemoConfig(environment: DemoEnvironment): DemoConfig {
     tokenAddress: environment.tokenAddress,
     tokenDecimals: environment.tokenMetadata.decimals,
     tokenSymbol: environment.tokenMetadata.symbol,
+  };
+}
+
+export function createSessionConfig(parameters: {
+  allowDelegatedSigner: boolean;
+  escrowContract?: Address | undefined;
+  minVoucherDelta: string;
+  recipientAddress?: Address | undefined;
+  secretKey?: string | undefined;
+  settlementAccount?: { address: Address } | undefined;
+  settlementIntervalSeconds: number;
+  settlementMinUnsettledAmount: string;
+  suggestedDeposit: string;
+}): DemoSessionConfig {
+  const blockers: string[] = [];
+
+  if (!parameters.secretKey) {
+    blockers.push(
+      "Set MPP_SECRET_KEY before retrying. Session challenges require a stable secret key.",
+    );
+  }
+
+  if (!parameters.escrowContract) {
+    blockers.push(
+      "Set MEGAETH_SESSION_ESCROW_ADDRESS before retrying. Session verification needs a deployed MegaETH escrow contract.",
+    );
+  }
+
+  if (!parameters.settlementAccount) {
+    blockers.push(
+      "Set MEGAETH_SETTLEMENT_PRIVATE_KEY before retrying. Session settle and close transactions require a funded server wallet.",
+    );
+  }
+
+  if (!parameters.recipientAddress) {
+    blockers.push(
+      "Set MEGAETH_RECIPIENT_ADDRESS or MEGAETH_SETTLEMENT_PRIVATE_KEY before retrying. The session demo needs a configured recipient address.",
+    );
+  }
+
+  return {
+    allowDelegatedSigner: parameters.allowDelegatedSigner,
+    blockers,
+    closeEnabled: true,
+    endpoint: {
+      amount: "100000",
+      description: "Reusable session resource",
+      id: "session",
+      kind: "session",
+      path: "/api/v1/session/basic",
+    },
+    ...(parameters.escrowContract
+      ? { escrowContract: parameters.escrowContract }
+      : {}),
+    label: demoDescriptions.sessionLabel,
+    minVoucherDelta: parameters.minVoucherDelta,
+    ready: blockers.length === 0,
+    settlementIntervalSeconds: parameters.settlementIntervalSeconds,
+    settlementMinUnsettledAmount: parameters.settlementMinUnsettledAmount,
+    statePath: "/api/v1/session/state",
+    suggestedDeposit: parameters.suggestedDeposit,
   };
 }
 
@@ -198,7 +302,7 @@ export function createModeStatuses(parameters: {
     hash: {
       blockers: hashBlockers,
       feePayer: false,
-      label: "Client broadcasts Permit2 transaction",
+      label: demoModeLabels.hash,
       ready: hashBlockers.length === 0,
       ...(parameters.recipientAddress
         ? { recipient: parameters.recipientAddress }
@@ -208,7 +312,7 @@ export function createModeStatuses(parameters: {
     permit2: {
       blockers: permit2Blockers,
       feePayer: parameters.feePayer,
-      label: "Server broadcasts Permit2 transaction",
+      label: demoModeLabels.permit2,
       ready: permit2Blockers.length === 0,
       ...(parameters.settlementAccount
         ? { recipient: parameters.settlementAccount.address }
@@ -268,6 +372,7 @@ export function resolveMode(value: unknown): DemoMode | undefined {
 
 export function getWarnings(parameters: {
   modeStatuses: Record<DemoMode, ModeStatus>;
+  session: DemoSessionConfig;
   submissionMode: SubmissionMode;
   splitRecipient?: `0x${string}` | undefined;
 }): string[] {
@@ -275,6 +380,7 @@ export function getWarnings(parameters: {
     new Set([
       ...parameters.modeStatuses.permit2.blockers,
       ...parameters.modeStatuses.hash.blockers,
+      ...parameters.session.blockers,
       ...(!parameters.splitRecipient
         ? [
             "Set MEGAETH_SPLIT_RECIPIENT if you want the split-payment demo route to fan out a second transfer.",
@@ -285,46 +391,11 @@ export function getWarnings(parameters: {
 
   if (!warnings.length) {
     return [
-      `The demo server is configured for both server-broadcast Permit2 requests and client-broadcast transaction-hash credentials with ${describeSubmissionMode(parameters.submissionMode)}.`,
+      `The demo server is configured for charge and session flows with ${describeSubmissionMode(parameters.submissionMode)}.`,
     ];
   }
 
   return warnings;
-}
-
-function resolveSubmissionMode(value: string | undefined): SubmissionMode {
-  if (!value) {
-    return "realtime";
-  }
-
-  if (
-    value === "auto" ||
-    value === "sync" ||
-    value === "realtime" ||
-    value === "sendAndWait"
-  ) {
-    return value;
-  }
-
-  throw new Error(
-    "Set MEGAETH_SUBMISSION_MODE to auto, sync, realtime, or sendAndWait before retrying. Use realtime to showcase MegaETH mini-block receipts in the demo.",
-  );
-}
-
-function describeSubmissionMode(mode: SubmissionMode): string {
-  if (mode === "realtime") {
-    return "MegaETH realtime mini-block submission";
-  }
-
-  if (mode === "sync") {
-    return "MegaETH sync receipt submission";
-  }
-
-  if (mode === "sendAndWait") {
-    return "standard transaction submission with receipt polling";
-  }
-
-  return "automatic MegaETH submission-mode fallback";
 }
 
 function getProcessBindings(): DemoEnvironmentBindings {

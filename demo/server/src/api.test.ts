@@ -1,82 +1,123 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, expect, it } from "vitest";
 
 import { TESTNET_USDC } from "../../../typescript/packages/mpp/src/constants.js";
+import { createDemoBindingsFixture } from "../../shared/testFixtures.js";
 
 import { createDemoApi } from "./api.js";
 import { createDemoEnvironment } from "./config.js";
 
-test("health and config routes preserve the demo contract without secrets", async () => {
-  const api = createDemoApi({
-    environment: createDemoEnvironment({
-      apiOrigin: "https://demo.example",
-      bindings: {
-        MEGAETH_TESTNET: "true",
-        MEGAETH_TOKEN_ADDRESS: TESTNET_USDC.address,
-      },
-    }),
+describe("demo server API", () => {
+  it("health and config routes preserve the demo contract without secrets", async () => {
+    const api = createDemoApi({
+      environment: createDemoEnvironment({
+        apiOrigin: "https://demo.example",
+        bindings: createDemoBindingsFixture({
+          MEGAETH_TOKEN_ADDRESS: TESTNET_USDC.address,
+        }),
+      }),
+    });
+
+    const healthResponse = await api.handleRequest(
+      new Request("https://demo.example/api/v1/health"),
+    );
+    const configResponse = await api.handleRequest(
+      new Request("https://demo.example/api/v1/config"),
+    );
+
+    expect(healthResponse).toBeTruthy();
+    expect(configResponse).toBeTruthy();
+    expect(healthResponse?.status).toBe(200);
+    expect(configResponse?.status).toBe(200);
+
+    const health = await healthResponse?.json();
+    const config = await configResponse?.json();
+
+    expect(health.status).toBe("configuration-required");
+    expect(health.submissionMode).toBe("realtime");
+    expect(config.submissionMode).toBe("realtime");
+    expect(config.tokenSymbol).toBe("USDC");
+    expect(config.endpoints.length).toBe(3);
+    expect(config.endpoints[0].id).toBe("basic");
+    expect(config.endpoints[1].id).toBe("splits");
+    expect(config.endpoints[2].id).toBe("session");
+    expect(config.endpoints[2].description).toBe("Reusable session resource");
+    expect(config.session.ready).toBe(false);
   });
 
-  const healthResponse = await api.handleRequest(
-    new Request("https://demo.example/api/v1/health"),
-  );
-  const configResponse = await api.handleRequest(
-    new Request("https://demo.example/api/v1/config"),
-  );
+  it("paid routes return an instructive error when mode is missing", async () => {
+    const api = createDemoApi({
+      environment: createDemoEnvironment({
+        apiOrigin: "https://demo.example",
+      }),
+    });
 
-  assert.ok(healthResponse);
-  assert.ok(configResponse);
-  assert.equal(healthResponse.status, 200);
-  assert.equal(configResponse.status, 200);
+    const response = await api.handleRequest(
+      new Request("https://demo.example/api/v1/charge/basic"),
+    );
 
-  const health = await healthResponse.json();
-  const config = await configResponse.json();
+    expect(response).toBeTruthy();
+    expect(response?.status).toBe(400);
 
-  assert.equal(health.status, "configuration-required");
-  assert.equal(health.submissionMode, "realtime");
-  assert.equal(config.submissionMode, "realtime");
-  assert.equal(config.tokenSymbol, "USDC");
-  assert.equal(config.endpoints.length, 2);
-  assert.equal(config.endpoints[0].id, "basic");
-  assert.equal(config.endpoints[1].id, "splits");
-});
-
-test("paid routes return an instructive error when mode is missing", async () => {
-  const api = createDemoApi({
-    environment: createDemoEnvironment({
-      apiOrigin: "https://demo.example",
-    }),
+    const body = await response?.json();
+    expect(body.detail).toMatch(/\?mode=permit2/);
   });
 
-  const response = await api.handleRequest(
-    new Request("https://demo.example/api/v1/charge/basic"),
-  );
+  it("paid routes return instructive setup blockers when secrets are missing", async () => {
+    const api = createDemoApi({
+      environment: createDemoEnvironment({
+        apiOrigin: "https://demo.example",
+        bindings: createDemoBindingsFixture(),
+      }),
+    });
 
-  assert.ok(response);
-  assert.equal(response.status, 400);
+    const response = await api.handleRequest(
+      new Request("https://demo.example/api/v1/charge/basic?mode=permit2"),
+    );
 
-  const body = await response.json();
-  assert.match(body.detail, /\?mode=permit2/);
-});
+    expect(response).toBeTruthy();
+    expect(response?.status).toBe(503);
 
-test("paid routes return instructive setup blockers when secrets are missing", async () => {
-  const api = createDemoApi({
-    environment: createDemoEnvironment({
-      apiOrigin: "https://demo.example",
-      bindings: {
-        MEGAETH_TESTNET: "true",
-      },
-    }),
+    const body = await response?.json();
+    expect(body.detail).toMatch(/MPP_SECRET_KEY/);
+    expect(body.detail).toMatch(/MEGAETH_SETTLEMENT_PRIVATE_KEY/);
   });
 
-  const response = await api.handleRequest(
-    new Request("https://demo.example/api/v1/charge/basic?mode=permit2"),
-  );
+  it("session route returns instructive setup blockers when escrow configuration is missing", async () => {
+    const api = createDemoApi({
+      environment: createDemoEnvironment({
+        apiOrigin: "https://demo.example",
+        bindings: createDemoBindingsFixture(),
+      }),
+    });
 
-  assert.ok(response);
-  assert.equal(response.status, 503);
+    const response = await api.handleRequest(
+      new Request("https://demo.example/api/v1/session/basic"),
+    );
 
-  const body = await response.json();
-  assert.match(body.detail, /MPP_SECRET_KEY/);
-  assert.match(body.detail, /MEGAETH_SETTLEMENT_PRIVATE_KEY/);
+    expect(response).toBeTruthy();
+    expect(response?.status).toBe(503);
+
+    const body = await response?.json();
+    expect(body.detail).toMatch(/MEGAETH_SESSION_ESCROW_ADDRESS/);
+    expect(body.detail).toMatch(/MPP_SECRET_KEY/);
+  });
+
+  it("session state route requires a channel id query parameter", async () => {
+    const api = createDemoApi({
+      environment: createDemoEnvironment({
+        apiOrigin: "https://demo.example",
+        bindings: createDemoBindingsFixture(),
+      }),
+    });
+
+    const response = await api.handleRequest(
+      new Request("https://demo.example/api/v1/session/state"),
+    );
+
+    expect(response).toBeTruthy();
+    expect(response?.status).toBe(400);
+
+    const body = await response?.json();
+    expect(body.detail).toMatch(/channelId/);
+  });
 });

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   describeSubmissionMode,
   formatSubmissionModeLabel,
-} from "./submissionMode.js";
+} from "../../../typescript/packages/mpp/src/utils/submissionMode.js";
 
 describe("submissionMode helpers", () => {
   it("formats the realtime label for the environment panel", () => {

@@ -15,8 +15,9 @@ import {
   getPermit2Address,
   buildTypedData,
 } from "../utils/permit2.js";
-import { submitTransaction, type SubmissionMode } from "../utils/rpc.js";
+import { submitTransaction } from "../utils/rpc.js";
 import { createDidPkhSource } from "../utils/source.js";
+import type { SubmissionMode } from "../utils/submissionMode.js";
 
 export function charge(
   parameters: charge.Parameters,

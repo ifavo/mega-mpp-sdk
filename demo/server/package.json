@@ -6,7 +6,7 @@
   "scripts": {
     "build": "pnpm typecheck",
     "dev": "tsx watch src/index.ts",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -15,8 +15,12 @@
     "@types/express": "^5.0.5",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "mppx": "^0.4.9",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "viem": "^2.47.6"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.1"
   }
 }

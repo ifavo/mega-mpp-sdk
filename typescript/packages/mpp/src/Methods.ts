@@ -49,6 +49,41 @@ const witnessBatchSchema = z.object({
   transferDetails: z.array(transferDetailSchema),
 });
 
+export const sessionOpenPayloadSchema = z.object({
+  action: z.literal("open"),
+  authorizedSigner: z.optional(z.address()),
+  channelId: z.hash(),
+  cumulativeAmount: baseUnitIntegerString("session cumulative amount"),
+  deposit: baseUnitIntegerString("session deposit"),
+  hash: z.hash(),
+  signature: z.signature(),
+});
+
+export const sessionTopUpPayloadSchema = z.object({
+  action: z.literal("topUp"),
+  additionalDeposit: baseUnitIntegerString("additional session deposit"),
+  channelId: z.hash(),
+  cumulativeAmount: z.optional(
+    baseUnitIntegerString("session cumulative amount"),
+  ),
+  hash: z.hash(),
+  signature: z.optional(z.signature()),
+});
+
+export const sessionVoucherPayloadSchema = z.object({
+  action: z.literal("voucher"),
+  channelId: z.hash(),
+  cumulativeAmount: baseUnitIntegerString("session cumulative amount"),
+  signature: z.signature(),
+});
+
+export const sessionClosePayloadSchema = z.object({
+  action: z.literal("close"),
+  channelId: z.hash(),
+  cumulativeAmount: baseUnitIntegerString("session cumulative amount"),
+  signature: z.signature(),
+});
+
 export const charge = Method.from({
   name: "megaeth",
   intent: "charge",
@@ -84,8 +119,43 @@ export const charge = Method.from({
   },
 });
 
+export const session = Method.from({
+  name: "megaeth",
+  intent: "session",
+  schema: {
+    credential: {
+      payload: z.discriminatedUnion("action", [
+        sessionOpenPayloadSchema,
+        sessionTopUpPayloadSchema,
+        sessionVoucherPayloadSchema,
+        sessionClosePayloadSchema,
+      ]),
+    },
+    request: z.object({
+      amount: baseUnitIntegerString("session unit amount"),
+      currency: z.address(),
+      description: z.optional(z.string()),
+      externalId: z.optional(z.string()),
+      recipient: z.address(),
+      suggestedDeposit: z.optional(
+        baseUnitIntegerString("suggested session deposit"),
+      ),
+      unitType: z.optional(z.string()),
+      methodDetails: z.object({
+        chainId: z.optional(z.number()),
+        channelId: z.optional(z.hash()),
+        escrowContract: z.address(),
+        minVoucherDelta: z.optional(
+          baseUnitIntegerString("minimum voucher delta"),
+        ),
+      }),
+    }),
+  },
+});
+
 export const megaeth = {
   charge,
+  session,
 };
 
 export type ChargeRequest = z.output<typeof charge.schema.request>;
@@ -113,3 +183,15 @@ export type ChargeReceipt = {
   timestamp: string;
   externalId?: string;
 };
+
+export type SessionRequest = z.output<typeof session.schema.request>;
+export type SessionOpenPayload = z.output<typeof sessionOpenPayloadSchema>;
+export type SessionTopUpPayload = z.output<typeof sessionTopUpPayloadSchema>;
+export type SessionVoucherPayload = z.output<
+  typeof sessionVoucherPayloadSchema
+>;
+export type SessionClosePayload = z.output<typeof sessionClosePayloadSchema>;
+export type SessionCredentialPayload = z.output<
+  typeof session.schema.credential.payload
+>;
+export type SessionReceipt = ChargeReceipt;

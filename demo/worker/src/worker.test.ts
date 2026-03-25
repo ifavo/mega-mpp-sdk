@@ -63,7 +63,7 @@ describe("Cloudflare worker demo", () => {
     expect(body.warnings[0]).toMatch(/MPP_SECRET_KEY/);
   });
 
-  it("returns config payloads with both demo endpoints and testnet token metadata", async () => {
+  it("returns config payloads with all demo endpoints and testnet token metadata", async () => {
     const response = await dispatch("https://demo.example/api/v1/config");
 
     expect(response.status).toBe(200);
@@ -71,8 +71,13 @@ describe("Cloudflare worker demo", () => {
     const body = (await response.json()) as DemoConfigResponse;
     expect(body.submissionMode).toBe("realtime");
     expect(body.tokenSymbol).toBe("USDC");
-    expect(body.endpoints).toHaveLength(2);
-    expect(body.endpoints.map(({ id }) => id)).toEqual(["basic", "splits"]);
+    expect(body.endpoints).toHaveLength(3);
+    expect(body.endpoints.map(({ id }) => id)).toEqual([
+      "basic",
+      "splits",
+      "session",
+    ]);
+    expect(body.session.ready).toBe(false);
   });
 
   it("returns an instructive 400 when the credential mode query is missing", async () => {
@@ -100,11 +105,34 @@ describe("Cloudflare worker demo", () => {
     expect(body.detail).toMatch(/MEGAETH_SETTLEMENT_PRIVATE_KEY/);
   });
 
+  it("returns an instructive 503 when session escrow configuration is missing", async () => {
+    const response = await dispatch("https://demo.example/api/v1/session/basic", {
+      MEGAETH_SESSION_ESCROW_ADDRESS: undefined,
+      MEGAETH_SETTLEMENT_PRIVATE_KEY: undefined,
+      MPP_SECRET_KEY: undefined,
+    });
+
+    expect(response.status).toBe(503);
+
+    const body = (await response.json()) as { detail: string };
+    expect(body.detail).toMatch(/MEGAETH_SESSION_ESCROW_ADDRESS/);
+    expect(body.detail).toMatch(/MPP_SECRET_KEY/);
+  });
+
+  it("returns an instructive 400 when the session state channel id is missing", async () => {
+    const response = await dispatch("https://demo.example/api/v1/session/state");
+
+    expect(response.status).toBe(400);
+
+    const body = (await response.json()) as { detail: string };
+    expect(body.detail).toMatch(/channelId/);
+  });
+
   it("serves the SPA shell for non-API navigation requests", async () => {
     const response = await dispatch("https://demo.example/demo/route");
 
     expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toContain("MegaETH MPP Demo");
+    await expect(response.text()).resolves.toContain("MPP Playground");
   });
 
   it("persists challenge and transaction replay markers through the Durable Object store", async () => {

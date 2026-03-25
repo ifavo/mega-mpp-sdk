@@ -3,17 +3,11 @@ import {
   Mppx,
   megaeth,
 } from "../../../typescript/packages/mpp/src/client/index.js";
-import {
-  createPublicClient,
-  createWalletClient,
-  custom,
-  http,
-  type Address,
-} from "viem";
+import { type Address } from "viem";
 
 import { formatChargeCost } from "./cost.js";
+import { createDemoClients } from "./demoClients.js";
 import type { ChargeProgress, ChargeResult, DemoConfig } from "./types.js";
-import { createDemoChain } from "./wallet.js";
 
 export function usePaidResourceRequest(parameters: {
   onProgress: (progress: ChargeProgress) => void;
@@ -26,22 +20,9 @@ export function usePaidResourceRequest(parameters: {
       config: DemoConfig;
       endpoint: string;
     }): Promise<ChargeResult> => {
-      const provider = window.ethereum;
-      if (!provider) {
-        throw new Error(
-          "Install an EIP-1193 wallet before retrying the MegaETH demo.",
-        );
-      }
-
-      const chain = createDemoChain(resourceRequest.config);
-      const walletClient = createWalletClient({
+      const { publicClient, walletClient } = createDemoClients({
         account: resourceRequest.account,
-        chain,
-        transport: custom(provider),
-      });
-      const publicClient = createPublicClient({
-        chain,
-        transport: http(resourceRequest.config.rpcUrl),
+        config: resourceRequest.config,
       });
 
       const mppx = Mppx.create({

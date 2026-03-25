@@ -32,8 +32,9 @@ import {
   Permit2VerificationError,
   recoverPermitOwner,
 } from "../utils/permit2.js";
-import { submitTransaction, type SubmissionMode } from "../utils/rpc.js";
+import { submitTransaction } from "../utils/rpc.js";
 import { parseDidPkhSource } from "../utils/source.js";
+import type { SubmissionMode } from "../utils/submissionMode.js";
 
 export function charge(
   parameters: charge.Parameters,

@@ -28,5 +28,5 @@
     "MEGAETH_RPC_URL": "https://carrot.megaeth.com/rpc",
     "MEGAETH_SUBMISSION_MODE": "realtime",
     "MEGAETH_TOKEN_ADDRESS": "0x75139a9559c9cd1ad69b7e239c216151d2c81e6f",
-  },
+  }
 }
