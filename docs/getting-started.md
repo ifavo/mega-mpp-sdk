@@ -49,6 +49,7 @@ export MEGAETH_TESTNET=true
 export MEGAETH_RPC_URL=https://carrot.megaeth.com/rpc
 export MEGAETH_TOKEN_ADDRESS=0x75139a9559c9cd1ad69b7e239c216151d2c81e6f
 export MEGAETH_PERMIT2_ADDRESS=0x000000000022D473030F116dDEE9F6B43aC78BA3
+export MEGAETH_SUBMISSION_MODE=realtime
 export MEGAETH_SETTLEMENT_PRIVATE_KEY='YOUR_SERVER_PRIVATE_KEY'
 export MEGAETH_FEE_PAYER=true
 ```
@@ -98,6 +99,8 @@ pnpm wrangler secret put MEGAETH_SETTLEMENT_PRIVATE_KEY
 ```
 
 `hash` mode can also use `MEGAETH_RECIPIENT_ADDRESS` instead of the settlement private key. The Worker defaults to MegaETH testnet and the documented Carrot USDC token through Wrangler vars, so `DEMO_PUBLIC_ORIGIN` is not needed in that path.
+
+The demo runtimes reuse the SDK's existing `submissionMode` option through `MEGAETH_SUBMISSION_MODE`. They default to `realtime` so MegaETH mini-block receipts are showcased out of the box.
 
 ## Local Deterministic Flow
 

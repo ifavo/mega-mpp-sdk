@@ -59,6 +59,7 @@ describe("Cloudflare worker demo", () => {
 
     const body = (await response.json()) as DemoHealthResponse;
     expect(body.status).toBe("configuration-required");
+    expect(body.submissionMode).toBe("realtime");
     expect(body.warnings[0]).toMatch(/MPP_SECRET_KEY/);
   });
 
@@ -68,6 +69,7 @@ describe("Cloudflare worker demo", () => {
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as DemoConfigResponse;
+    expect(body.submissionMode).toBe("realtime");
     expect(body.tokenSymbol).toBe("USDC");
     expect(body.endpoints).toHaveLength(2);
     expect(body.endpoints.map(({ id }) => id)).toEqual(["basic", "splits"]);

@@ -33,6 +33,8 @@ test("health and config routes preserve the demo contract without secrets", asyn
   const config = await configResponse.json();
 
   assert.equal(health.status, "configuration-required");
+  assert.equal(health.submissionMode, "realtime");
+  assert.equal(config.submissionMode, "realtime");
   assert.equal(config.tokenSymbol, "USDC");
   assert.equal(config.endpoints.length, 2);
   assert.equal(config.endpoints[0].id, "basic");

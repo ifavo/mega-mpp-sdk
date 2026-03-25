@@ -5,6 +5,7 @@ import {
   megaeth as megaethChain,
   megaethTestnet,
 } from "../../../typescript/packages/mpp/src/constants.js";
+import type { SubmissionMode } from "../../../typescript/packages/mpp/src/utils/rpc.js";
 import type {
   DemoAddress,
   DemoConfig,
@@ -21,6 +22,7 @@ export type DemoEnvironmentBindings = {
   MEGAETH_PERMIT2_ADDRESS?: DemoAddress | undefined;
   MEGAETH_RECIPIENT_ADDRESS?: DemoAddress | undefined;
   MEGAETH_RPC_URL?: string | undefined;
+  MEGAETH_SUBMISSION_MODE?: string | undefined;
   MEGAETH_SETTLEMENT_PRIVATE_KEY?: DemoAddress | undefined;
   MEGAETH_SPLIT_AMOUNT?: string | undefined;
   MEGAETH_SPLIT_RECIPIENT?: DemoAddress | undefined;
@@ -42,6 +44,7 @@ export type DemoEnvironment = {
   rpcUrl: string;
   secretKey?: string | undefined;
   settlementAccount?: ReturnType<typeof privateKeyToAccount> | undefined;
+  submissionMode: SubmissionMode;
   splitAmount: string;
   splitRecipient?: `0x${string}` | undefined;
   testnet: boolean;
@@ -75,6 +78,9 @@ export function createDemoEnvironment(parameters: {
   const splitAmount = bindings.MEGAETH_SPLIT_AMOUNT ?? "50000";
   const feePayer = bindings.MEGAETH_FEE_PAYER !== "false";
   const secretKey = bindings.MPP_SECRET_KEY;
+  const submissionMode = resolveSubmissionMode(
+    bindings.MEGAETH_SUBMISSION_MODE,
+  );
   const settlementKey = bindings.MEGAETH_SETTLEMENT_PRIVATE_KEY as
     | `0x${string}`
     | undefined;
@@ -99,6 +105,7 @@ export function createDemoEnvironment(parameters: {
     rpcUrl,
     ...(secretKey ? { secretKey } : {}),
     ...(settlementAccount ? { settlementAccount } : {}),
+    submissionMode,
     splitAmount,
     ...(splitRecipient ? { splitRecipient } : {}),
     testnet,
@@ -147,6 +154,7 @@ export function createDemoConfig(environment: DemoEnvironment): DemoConfig {
       ? { recipient: environment.recipientAddress }
       : {}),
     rpcUrl: environment.rpcUrl,
+    submissionMode: environment.submissionMode,
     splitAmount: environment.splitAmount,
     ...(environment.splitRecipient
       ? { splitRecipient: environment.splitRecipient }
@@ -260,6 +268,7 @@ export function resolveMode(value: unknown): DemoMode | undefined {
 
 export function getWarnings(parameters: {
   modeStatuses: Record<DemoMode, ModeStatus>;
+  submissionMode: SubmissionMode;
   splitRecipient?: `0x${string}` | undefined;
 }): string[] {
   const warnings = Array.from(
@@ -276,11 +285,46 @@ export function getWarnings(parameters: {
 
   if (!warnings.length) {
     return [
-      "The demo server is configured for both server-broadcast Permit2 requests and client-broadcast transaction-hash credentials.",
+      `The demo server is configured for both server-broadcast Permit2 requests and client-broadcast transaction-hash credentials with ${describeSubmissionMode(parameters.submissionMode)}.`,
     ];
   }
 
   return warnings;
+}
+
+function resolveSubmissionMode(value: string | undefined): SubmissionMode {
+  if (!value) {
+    return "realtime";
+  }
+
+  if (
+    value === "auto" ||
+    value === "sync" ||
+    value === "realtime" ||
+    value === "sendAndWait"
+  ) {
+    return value;
+  }
+
+  throw new Error(
+    "Set MEGAETH_SUBMISSION_MODE to auto, sync, realtime, or sendAndWait before retrying. Use realtime to showcase MegaETH mini-block receipts in the demo.",
+  );
+}
+
+function describeSubmissionMode(mode: SubmissionMode): string {
+  if (mode === "realtime") {
+    return "MegaETH realtime mini-block submission";
+  }
+
+  if (mode === "sync") {
+    return "MegaETH sync receipt submission";
+  }
+
+  if (mode === "sendAndWait") {
+    return "standard transaction submission with receipt polling";
+  }
+
+  return "automatic MegaETH submission-mode fallback";
 }
 
 function getProcessBindings(): DemoEnvironmentBindings {

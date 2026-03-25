@@ -9,6 +9,10 @@ import type {
   DemoHealthResponse,
   DemoMode,
 } from "./types.js";
+import {
+  describeSubmissionMode,
+  formatSubmissionModeLabel,
+} from "./submissionMode.js";
 import { usePaidResourceRequest } from "./usePaidResource.js";
 import { connectWalletForDemoChain } from "./wallet.js";
 
@@ -113,6 +117,10 @@ export function App() {
             value={
               health.status ?? (config.canSettle ? "ready" : "setup required")
             }
+          />
+          <Fact
+            label="Submission"
+            value={formatSubmissionModeLabel(config.submissionMode)}
           />
           <Fact label="Token" value={config.tokenSymbol} />
           <Fact label="Permit2" value={shortAddress(config.permit2Address)} />
@@ -248,6 +256,9 @@ export function App() {
               }
             />
           </div>
+          <p className="panel-copy">
+            {describeSubmissionMode(config.submissionMode)}
+          </p>
           <NoteGroup
             emptyMessage="The selected mode has no setup blockers."
             items={selectedMode.blockers}

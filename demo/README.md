@@ -30,6 +30,8 @@ pnpm demo:worker:dev
 
 The Worker keeps replay-sensitive payment state in a Durable Object. It defaults to MegaETH testnet and testnet USDC, but it still starts without secrets so `/api/v1/health` and `/api/v1/config` can explain what you need to configure before the paid routes can succeed.
 
+Both demo runtimes accept `MEGAETH_SUBMISSION_MODE=auto|sync|realtime|sendAndWait` and default to `realtime` so the demo showcases MegaETH mini-block receipts by default.
+
 ## Routes
 
 - `GET /api/v1/health`

@@ -1,4 +1,9 @@
-import { custom, createPublicClient, MethodNotFoundRpcError } from "viem";
+import {
+  custom,
+  createPublicClient,
+  keccak256,
+  MethodNotFoundRpcError,
+} from "viem";
 import type * as ViemActionsModule from "viem/actions";
 import {
   prepareTransactionRequest,
@@ -108,6 +113,70 @@ describe("rpc submission", () => {
     expect(mockedSendRawTransaction).toHaveBeenCalledWith(publicClient, {
       serializedTransaction: "0x1234",
     });
+  });
+
+  it("normalizes realtime receipt payloads without waiting for a second receipt lookup", async () => {
+    const hash =
+      "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+    const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
+      if (method === "realtime_sendRawTransaction") {
+        return {
+          blockHash:
+            "0x0000000000000000000000000000000000000000000000000000000000000000",
+          blockNumber: "0x10",
+          contractAddress: null,
+          cumulativeGasUsed: "0x11dde",
+          effectiveGasPrice: "0x23ebdf",
+          from: "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          gasUsed: "0x5208",
+          logs: [],
+          logsBloom: "0x0",
+          status: "0x1",
+          to: "0xa7b8c275b3dde39e69a5c0ffd9f34f974364941a",
+          transactionHash: hash,
+          transactionIndex: "0x1",
+          type: "0x0",
+        };
+      }
+
+      throw new Error(`Unexpected request method: ${method}`);
+    });
+
+    const receipt = await sendSignedTransaction(
+      publicClient,
+      "0x1234",
+      "realtime",
+    );
+
+    expect(receipt.transactionHash).toBe(hash);
+    expect(receipt.status).toBe("success");
+    expect(mockedWaitForTransactionReceipt).not.toHaveBeenCalled();
+  });
+
+  it("waits for the derived transaction hash when realtime submission expires", async () => {
+    const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
+      if (method === "realtime_sendRawTransaction") {
+        throw new Error("realtime transaction expired");
+      }
+
+      throw new Error(`Unexpected request method: ${method}`);
+    });
+    const expectedHash = keccak256("0x1234");
+    mockedWaitForTransactionReceipt.mockResolvedValueOnce(
+      createTransactionReceipt(expectedHash),
+    );
+
+    const receipt = await sendSignedTransaction(
+      publicClient,
+      "0x1234",
+      "realtime",
+    );
+
+    expect(receipt.transactionHash).toBe(expectedHash);
+    expect(mockedWaitForTransactionReceipt).toHaveBeenCalledWith(publicClient, {
+      hash: expectedHash,
+    });
+    expect(mockedSendRawTransaction).not.toHaveBeenCalled();
   });
 
   it("falls back to wallet sendTransaction only when raw signing is unsupported", async () => {

@@ -26,6 +26,7 @@ const config: DemoConfig = {
   },
   permit2Address: "0x3333333333333333333333333333333333333333",
   rpcUrl: "https://carrot.megaeth.com/rpc",
+  submissionMode: "realtime",
   splitAmount: "50000",
   testnet: true,
   tokenAddress: "0x1111111111111111111111111111111111111111",

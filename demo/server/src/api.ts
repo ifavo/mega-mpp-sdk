@@ -1,4 +1,8 @@
-import { Mppx, Store, megaeth as megaethMethod } from "../../../typescript/packages/mpp/src/server/index.js";
+import {
+  Mppx,
+  Store,
+  megaeth as megaethMethod,
+} from "../../../typescript/packages/mpp/src/server/index.js";
 import { createPublicClient, createWalletClient, http } from "viem";
 
 import type {
@@ -41,11 +45,13 @@ type PaidRequestParameters = {
   amount: string;
   description: string;
   externalId: string;
-  splits?: Array<{
-    amount: string;
-    memo?: string;
-    recipient: `0x${string}`;
-  }> | undefined;
+  splits?:
+    | Array<{
+        amount: string;
+        memo?: string;
+        recipient: `0x${string}`;
+      }>
+    | undefined;
 };
 
 type DemoApi = {
@@ -83,6 +89,7 @@ export function createDemoApi(parameters: {
               publicClient,
               recipient: environment.settlementAccount.address,
               rpcUrls: { [environment.chain.id]: environment.rpcUrl },
+              submissionMode: environment.submissionMode,
               store,
               testnet: environment.testnet,
               walletClient,
@@ -114,7 +121,9 @@ export function createDemoApi(parameters: {
         })
       : undefined;
 
-  type DemoMppx = NonNullable<typeof permit2Mppx> | NonNullable<typeof hashMppx>;
+  type DemoMppx =
+    | NonNullable<typeof permit2Mppx>
+    | NonNullable<typeof hashMppx>;
 
   return {
     async handleRequest(request) {
@@ -236,6 +245,7 @@ function createHealthResponse(
     status: resolveDemoStatus(environment.modeStatuses),
     warnings: getWarnings({
       modeStatuses: environment.modeStatuses,
+      submissionMode: environment.submissionMode,
       splitRecipient: environment.splitRecipient,
     }),
   };
