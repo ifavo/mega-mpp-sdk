@@ -33,7 +33,10 @@ pnpm demo:app
 ```
 
 That starts the demo with the testnet payment token, explicit payee, and
-session escrow wired in. Funded flows still need:
+session escrow wired in. The local server keeps replay-sensitive charge and
+session state in `.mega-mpp-demo-store.json` under the current working
+directory so restarts do not clear accepted challenge markers. Funded flows
+still need:
 
 ```bash
 export PORT=3001

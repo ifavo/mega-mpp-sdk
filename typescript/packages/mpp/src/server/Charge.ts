@@ -39,6 +39,7 @@ import {
   type SubmissionMode,
 } from "../utils/submissionMode.js";
 import { attachMegaethServerMethodMetadata } from "./methodMetadata.js";
+import { withVerificationLocks } from "./verificationLocks.js";
 
 export function charge(
   parameters: charge.Parameters = {},
@@ -127,29 +128,38 @@ export function charge(
         }
 
         try {
-          if (credential.payload.type === "hash") {
-            return await verifyHashCredential({
-              chainId,
-              challenge,
+          return await withVerificationLocks({
+            keys: getVerificationLockKeys({
               challengeId,
-              hash: credential.payload.hash as `0x${string}`,
-              publicClient,
-              source: credential.source,
-              store,
-            });
-          }
-
-          return await verifyPermitCredential({
-            account,
-            chainId,
-            challenge,
-            challengeId,
-            payload: credential.payload,
-            publicClient,
-            source: credential.source,
+              payload: credential.payload,
+            }),
             store,
-            submissionMode: normalizedParameters.submissionMode,
-            walletClientResolver: normalizedParameters,
+            task: async () => {
+              if (credential.payload.type === "hash") {
+                return await verifyHashCredential({
+                  chainId,
+                  challenge,
+                  challengeId,
+                  hash: credential.payload.hash as `0x${string}`,
+                  publicClient,
+                  source: credential.source,
+                  store,
+                });
+              }
+
+              return await verifyPermitCredential({
+                account,
+                chainId,
+                challenge,
+                challengeId,
+                payload: credential.payload,
+                publicClient,
+                source: credential.source,
+                store,
+                submissionMode: normalizedParameters.submissionMode,
+                walletClientResolver: normalizedParameters,
+              });
+            },
           });
         } catch (error) {
           if (error instanceof Errors.PaymentError) {
@@ -423,6 +433,23 @@ async function assertChallengeAvailable(
 
 function getChallengeStoreKey(challengeId: string): string {
   return `megaeth:charge:challenge:${challengeId}`;
+}
+
+function getVerificationLockKeys(parameters: {
+  challengeId: string;
+  payload: Methods.ChargeCredentialPayload;
+}): string[] {
+  const keys = [
+    `megaeth:charge:verification:challenge:${parameters.challengeId}`,
+  ];
+
+  if (parameters.payload.type === "hash") {
+    keys.push(
+      `megaeth:charge:verification:hash:${parameters.payload.hash.toLowerCase()}`,
+    );
+  }
+
+  return keys;
 }
 
 function badRequest(reason: string): Errors.BadRequestError {

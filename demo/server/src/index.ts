@@ -9,6 +9,7 @@ import express, {
 
 import { createDemoApi } from "./api.js";
 import { loadNodeDemoEnvironment } from "./config.js";
+import { createFileStore, getDefaultDemoStorePath } from "./store.js";
 
 const app = express();
 app.use(express.json());
@@ -21,6 +22,7 @@ app.use(
 const { environment, port } = loadNodeDemoEnvironment();
 const demoApi = createDemoApi({
   environment,
+  store: createFileStore(getDefaultDemoStorePath()),
 });
 
 app.get("/api/v1/health", handleApiRequest);

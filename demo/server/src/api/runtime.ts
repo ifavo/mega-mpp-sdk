@@ -37,9 +37,9 @@ export type DemoRuntimeSet = {
 
 export function createDemoRuntimeSet(parameters: {
   environment: DemoEnvironment;
-  store?: Store.Store | undefined;
+  store: Store.Store;
 }): DemoRuntimeSet {
-  const { environment, store = Store.memory() } = parameters;
+  const { environment, store } = parameters;
   const publicClient = createPublicClient({
     chain: environment.chain,
     transport: http(environment.rpcUrl),
@@ -122,7 +122,9 @@ function createHashChargeMppx(parameters: {
     permit2Address: parameters.environment.permit2Address,
     publicClient: parameters.publicClient,
     recipient: parameters.recipient,
-    rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
+    rpcUrls: {
+      [parameters.environment.chain.id]: parameters.environment.rpcUrl,
+    },
     methods: [
       megaethMethod.charge({
         feePayer: false,
@@ -149,7 +151,9 @@ function createPermit2ChargeMppx(parameters: {
     permit2Address: parameters.environment.permit2Address,
     publicClient: parameters.publicClient,
     recipient: parameters.recipient,
-    rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
+    rpcUrls: {
+      [parameters.environment.chain.id]: parameters.environment.rpcUrl,
+    },
     submissionMode: parameters.environment.submissionMode,
     walletClient: parameters.walletClient,
     methods: [
@@ -175,7 +179,9 @@ function createSessionMppx(parameters: {
     currency: parameters.environment.tokenAddress,
     publicClient: parameters.publicClient,
     recipient: parameters.recipient,
-    rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
+    rpcUrls: {
+      [parameters.environment.chain.id]: parameters.environment.rpcUrl,
+    },
     walletClient: parameters.walletClient,
     methods: [
       megaethMethod.session({

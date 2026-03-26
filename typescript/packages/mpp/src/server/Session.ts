@@ -35,6 +35,7 @@ import {
 } from "../utils/clients.js";
 import { parseDidPkhSource } from "../utils/source.js";
 import { attachMegaethServerMethodMetadata } from "./methodMetadata.js";
+import { withVerificationLocks } from "./verificationLocks.js";
 
 export function session(
   parameters: session.Parameters,
@@ -159,57 +160,66 @@ export function session(
           });
         }
 
-        await assertChallengeAvailable(store, challengeId);
+        return await withVerificationLocks({
+          keys: getVerificationLockKeys({
+            challengeId,
+            payload: credential.payload,
+          }),
+          store,
+          task: async () => {
+            await assertChallengeAvailable(store, challengeId);
 
-        switch (credential.payload.action) {
-          case "open":
-            return verifyOpenAction({
-              account,
-              challenge,
-              challengeId,
-              channelStore,
-              parameters,
-              payload: credential.payload,
-              publicClient,
-              source: credential.source,
-              store,
-            });
-          case "topUp":
-            return verifyTopUpAction({
-              account,
-              challenge,
-              challengeId,
-              channelStore,
-              parameters,
-              payload: credential.payload,
-              publicClient,
-              source: credential.source,
-              store,
-            });
-          case "voucher":
-            return verifyVoucherAction({
-              challenge,
-              challengeId,
-              channelStore,
-              parameters,
-              payload: credential.payload,
-              publicClient,
-              source: credential.source,
-              store,
-            });
-          case "close":
-            return verifyCloseAction({
-              account,
-              challenge,
-              challengeId,
-              channelStore,
-              parameters,
-              payload: credential.payload,
-              publicClient,
-              source: credential.source,
-              store,
-            });
-        }
+            switch (credential.payload.action) {
+              case "open":
+                return verifyOpenAction({
+                  account,
+                  challenge,
+                  challengeId,
+                  channelStore,
+                  parameters,
+                  payload: credential.payload,
+                  publicClient,
+                  source: credential.source,
+                  store,
+                });
+              case "topUp":
+                return verifyTopUpAction({
+                  account,
+                  challenge,
+                  challengeId,
+                  channelStore,
+                  parameters,
+                  payload: credential.payload,
+                  publicClient,
+                  source: credential.source,
+                  store,
+                });
+              case "voucher":
+                return verifyVoucherAction({
+                  challenge,
+                  challengeId,
+                  channelStore,
+                  parameters,
+                  payload: credential.payload,
+                  publicClient,
+                  source: credential.source,
+                  store,
+                });
+              case "close":
+                return verifyCloseAction({
+                  account,
+                  challenge,
+                  challengeId,
+                  channelStore,
+                  parameters,
+                  payload: credential.payload,
+                  publicClient,
+                  source: credential.source,
+                  store,
+                });
+            }
+          },
+        });
       },
 
       respond({ credential }) {
@@ -1046,6 +1056,38 @@ function getChallengeStoreKey(challengeId: string): string {
 
 function getHashStoreKey(hash: Hex): string {
   return `megaeth:session:hash:${hash.toLowerCase()}`;
+}
+
+function getVerificationLockKeys(parameters: {
+  challengeId: string;
+  payload: Methods.SessionCredentialPayload;
+}): string[] {
+  const keys = [
+    `megaeth:session:verification:challenge:${parameters.challengeId}`,
+  ];
+
+  switch (parameters.payload.action) {
+    case "open":
+      keys.push(
+        `megaeth:session:verification:channel:${parameters.payload.channelId.toLowerCase()}`,
+        `megaeth:session:verification:hash:${parameters.payload.hash.toLowerCase()}`,
+      );
+      break;
+    case "topUp":
+      keys.push(
+        `megaeth:session:verification:channel:${parameters.payload.channelId.toLowerCase()}`,
+        `megaeth:session:verification:hash:${parameters.payload.hash.toLowerCase()}`,
+      );
+      break;
+    case "voucher":
+    case "close":
+      keys.push(
+        `megaeth:session:verification:channel:${parameters.payload.channelId.toLowerCase()}`,
+      );
+      break;
+  }
+
+  return keys;
 }
 
 function validateSource(
