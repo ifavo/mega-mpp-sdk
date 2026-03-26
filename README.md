@@ -46,6 +46,7 @@ first: either return the challenge or return the data.
 ```ts
 import { Mppx, megaeth } from "mega-mpp-sdk/server";
 import { megaethMainnet } from "mega-mpp-sdk/chains";
+import { parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const settlementAccount = privateKeyToAccount(
@@ -59,15 +60,14 @@ const mppx = Mppx.create({
   recipient: settlementAccount.address, // Sets who receives the payment when the charge settles.
   methods: [
     megaeth.charge({
-      currency: process.env.MEGAETH_PAYMENT_TOKEN_ADDRESS!, // Chooses the ERC-20 token the payer will spend.
       submissionMode: "realtime", // Uses MegaETH's realtime submission path when the RPC supports it.
     }),
   ],
 });
 
 const result = await mppx.megaeth.charge({
-  amount: "1000000", // Prices this request in token base units, e.g. 1.000000 USDC.
-  description: "Premium API response", // Tells the payer what this charge unlocks.
+  amount: parseUnits("0.01", 18).toString(), // Required. 1 cent of USDm on MegaETH mainnet.
+  description: "Premium API response", // Optional. Tells the payer what this charge unlocks.
 })(request); // Verifies a retrying payment or creates the next 402 challenge.
 
 if (result.status === 402) {
@@ -78,6 +78,15 @@ return result.withReceipt(
   Response.json({ data: "..." }), // Return your data and attach the Payment-Receipt header.
 );
 ```
+
+For the quick charge path:
+
+- `mppx.megaeth.charge({ amount })`: `amount` is required.
+- `mppx.megaeth.charge({ description, externalId })`: both are optional.
+- `megaeth.charge({ currency })`: optional and defaults to mainnet USDm.
+- `megaeth.charge({ permit2Address })`: optional and defaults to the canonical Permit2 contract.
+- `recipient` and `methodDetails.chainId`: optional on the route request when you already set `recipient` and `chainId` in `Mppx.create(...)`, as this example does.
+- `megaeth.charge({ submissionMode })`: optional to pass, but it has no automatic SDK default. Set `sync`, `realtime`, or `sendAndWait` before using a broadcast flow.
 
 ### Explicit Testnet Charge Setup
 

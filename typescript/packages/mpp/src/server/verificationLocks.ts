@@ -1,4 +1,4 @@
-import { Store } from "mppx/server";
+import type { Store } from "mppx/server";
 
 type LockRelease = (() => Promise<void> | void) | void;
 
