@@ -5,6 +5,7 @@ import { Challenge, Credential, Errors, Store } from "mppx";
 import {
   createPublicClient,
   createWalletClient,
+  encodeFunctionData,
   http,
   type Address,
   type Hex,
@@ -28,7 +29,10 @@ import {
 import { session as serverSession } from "../server/Session.js";
 import { getSessionChannelKey } from "../session/store.js";
 import { compileMockContracts } from "./fixtures/mockContracts.js";
-import { loadSessionEscrowContract } from "./fixtures/sessionContracts.js";
+import {
+  loadErc1967ProxyContract,
+  loadSessionEscrowContract,
+} from "./fixtures/sessionContracts.js";
 
 type SessionChallenge = Challenge.Challenge<
   SharedMethods.SessionRequest,
@@ -81,6 +85,7 @@ describe("megaeth session integration", () => {
     const signer = createMnemonicWalletClient(rpcUrl, 3);
 
     const mockContracts = compileMockContracts();
+    const erc1967Proxy = loadErc1967ProxyContract();
     const sessionEscrow = loadSessionEscrowContract();
 
     const tokenHash = await deployContract(deployer, {
@@ -95,10 +100,38 @@ describe("megaeth session integration", () => {
     });
     const tokenAddress = tokenReceipt.contractAddress;
 
-    const escrowHash = await deployContract(deployer, {
+    const implementationHash = await deployContract(deployer, {
       abi: sessionEscrow.abi,
       account: deployer.account,
       bytecode: sessionEscrow.bytecode,
+      chain: megaethTestnet,
+    });
+    const implementationReceipt = await waitForTransactionReceipt(
+      publicClient,
+      {
+        hash: implementationHash,
+      },
+    );
+    const implementationAddress = implementationReceipt.contractAddress;
+
+    if (!tokenAddress || !implementationAddress) {
+      throw new Error(
+        "Deploy the mock token and MegaETH session escrow successfully before running the session integration suite.",
+      );
+    }
+
+    const escrowHash = await deployContract(deployer, {
+      abi: erc1967Proxy.abi,
+      account: deployer.account,
+      args: [
+        implementationAddress,
+        encodeFunctionData({
+          abi: sessionEscrow.abi,
+          args: [deployer.account.address, 86_400],
+          functionName: "initialize",
+        }),
+      ],
+      bytecode: erc1967Proxy.bytecode,
       chain: megaethTestnet,
     });
     const escrowReceipt = await waitForTransactionReceipt(publicClient, {
@@ -106,22 +139,11 @@ describe("megaeth session integration", () => {
     });
     const escrowAddress = escrowReceipt.contractAddress;
 
-    if (!tokenAddress || !escrowAddress) {
+    if (!escrowAddress) {
       throw new Error(
-        "Deploy the mock token and MegaETH session escrow successfully before running the session integration suite.",
+        "Deploy the MegaETH session escrow proxy successfully before running the session integration suite.",
       );
     }
-
-    await waitForTransactionReceipt(publicClient, {
-      hash: await writeContract(deployer, {
-        abi: sessionEscrow.abi,
-        account: deployer.account,
-        address: escrowAddress,
-        args: [deployer.account.address, 86_400],
-        chain: megaethTestnet,
-        functionName: "initialize",
-      }),
-    });
 
     await waitForTransactionReceipt(publicClient, {
       hash: await writeContract(deployer, {

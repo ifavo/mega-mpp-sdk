@@ -27,21 +27,39 @@ type CompiledContract = {
   bytecode: Hex;
 };
 
-let compiled: CompiledContract | undefined;
+const compiledContracts = new Map<string, CompiledContract>();
 
 export function loadSessionEscrowContract(): CompiledContract {
-  if (compiled) {
-    return compiled;
+  return loadCompiledContract({
+    contractName: "MegaMppSessionEscrow",
+    entrySource: "src/MegaMppSessionEscrow.sol",
+  });
+}
+
+export function loadErc1967ProxyContract(): CompiledContract {
+  return loadCompiledContract({
+    contractName: "ERC1967Proxy",
+    entrySource:
+      "lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+  });
+}
+
+function loadCompiledContract(parameters: {
+  contractName: string;
+  entrySource: string;
+}): CompiledContract {
+  const cacheKey = `${parameters.entrySource}:${parameters.contractName}`;
+  const cachedContract = compiledContracts.get(cacheKey);
+  if (cachedContract) {
+    return cachedContract;
   }
 
   const fixtureDirectory = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(fixtureDirectory, "../../../../../..");
   const contractsDirectory = path.join(repoRoot, "contracts");
 
-  const sources = collectSources(
-    contractsDirectory,
-    "src/MegaMppSessionEscrow.sol",
-  );
+  const entrySource = normalizeSourceUnitName(parameters.entrySource);
+  const sources = collectSources(contractsDirectory, entrySource);
 
   const output = JSON.parse(
     solc.compile(
@@ -65,22 +83,20 @@ export function loadSessionEscrowContract(): CompiledContract {
     throw new Error(errors.map((error) => error.formattedMessage).join("\n"));
   }
 
-  const contract =
-    output.contracts?.["src/MegaMppSessionEscrow.sol"]?.[
-      "MegaMppSessionEscrow"
-    ];
+  const contract = output.contracts?.[entrySource]?.[parameters.contractName];
   if (!contract?.abi || !contract.evm?.bytecode?.object) {
     throw new Error(
-      "Compile the MegaMppSessionEscrow contract successfully before running the session integration suite.",
+      `Compile ${parameters.contractName} from ${entrySource} successfully before running the session integration suite.`,
     );
   }
 
-  compiled = {
+  const compiledContract = {
     abi: contract.abi,
-    bytecode: `0x${contract.evm.bytecode.object}`,
+    bytecode: `0x${contract.evm.bytecode.object}` as Hex,
   };
+  compiledContracts.set(cacheKey, compiledContract);
 
-  return compiled;
+  return compiledContract;
 }
 
 function collectSources(

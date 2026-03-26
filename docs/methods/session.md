@@ -194,10 +194,26 @@ forge script script/DeployMegaMppSessionEscrow.s.sol:DeployMegaMppSessionEscrowS
 
 On MegaETH, include `--skip-simulation` when you deploy with Foundry. The deployment path should target live broadcast directly.
 
+Upgrade script for an existing proxy:
+
+```bash
+cd contracts
+export PRIVATE_KEY='0x...'
+export SESSION_ESCROW_PROXY='0x...'
+
+forge script script/UpgradeMegaMppSessionEscrow.s.sol:UpgradeMegaMppSessionEscrowScript \
+  --rpc-url "$MEGAETH_RPC_URL" \
+  --skip-simulation \
+  --broadcast
+```
+
+Use the current proxy owner key for upgrades. If the owner is a multisig, generate upgrade calldata off-chain instead of running the broadcast script directly.
+
 ## Funding Constraints
 
 - the payer wallet pays gas for `open` and `topUp`
 - the payer wallet must approve the escrow contract directly for the ERC-20 deposit
+- the escrow only supports exact-transfer, non-rebasing ERC-20s whose sender debit and recipient credit both match the requested transfer amount
 - the server settlement wallet pays gas for `settle` and `close`
 - session fee sponsorship is out of scope in v1
 

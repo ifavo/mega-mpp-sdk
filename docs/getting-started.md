@@ -348,6 +348,21 @@ Then export the proxy address:
 export MEGAETH_SESSION_ESCROW_ADDRESS='0xYOUR_ESCROW_PROXY'
 ```
 
+When you already have a live proxy and only need to roll out a new implementation, upgrade it with:
+
+```bash
+cd contracts
+export PRIVATE_KEY='0x...'
+export SESSION_ESCROW_PROXY="$MEGAETH_SESSION_ESCROW_ADDRESS"
+
+forge script script/UpgradeMegaMppSessionEscrow.s.sol:UpgradeMegaMppSessionEscrowScript \
+  --rpc-url "$MEGAETH_RPC_URL" \
+  --skip-simulation \
+  --broadcast
+```
+
+Use the current proxy owner key for that upgrade. If ownership is held by a multisig, prepare calldata and execute it through the multisig instead of broadcasting from this script.
+
 Approve the escrow contract once from the client wallet:
 
 ```bash
@@ -377,6 +392,7 @@ cast send "$MEGAETH_PAYMENT_TOKEN_ADDRESS" \
 - Keep `chainId` and `recipient` explicit. The SDK should not infer network or payee from missing configuration.
 - The settlement wallet should be funded for every server-side on-chain action it is expected to broadcast.
 - Session payees and settlement wallets should stay aligned. The server must settle and close as the configured payee.
+- Session escrow deposits only support exact-transfer, non-rebasing ERC-20s. Choose a token whose sender debit and recipient credit both match the requested transfer amount.
 - Permit2 approval only covers `charge`. Session deposits require a direct ERC-20 approval to the escrow contract.
 
 ## Cloudflare Worker Appendix
