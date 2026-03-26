@@ -50,15 +50,11 @@ describe("rpc submission", () => {
     mockedWaitForTransactionReceipt.mockReset();
   });
 
-  it("falls back from sync submission to realtime submission when the sync method is unsupported", async () => {
+  it("submits sync transactions explicitly when the caller configures sync mode", async () => {
     const hash =
       "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
       if (method === "eth_sendRawTransactionSync") {
-        throw new MethodNotFoundRpcError(new Error("missing method"));
-      }
-
-      if (method === "realtime_sendRawTransaction") {
         return hash;
       }
 
@@ -68,7 +64,7 @@ describe("rpc submission", () => {
       createTransactionReceipt(hash),
     );
 
-    const receipt = await sendSignedTransaction(publicClient, "0x1234");
+    const receipt = await sendSignedTransaction(publicClient, "0x1234", "sync");
 
     expect(receipt.transactionHash).toBe(hash);
     expect(mockedWaitForTransactionReceipt).toHaveBeenCalledWith(publicClient, {
@@ -76,7 +72,23 @@ describe("rpc submission", () => {
     });
   });
 
-  it("propagates the first supported submission error instead of downgrading it", async () => {
+  it("returns an instructive error when sync submission is unsupported", async () => {
+    const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
+      if (method === "eth_sendRawTransactionSync") {
+        throw new MethodNotFoundRpcError(new Error("missing method"));
+      }
+
+      throw new Error(`Unexpected request method: ${method}`);
+    });
+
+    await expect(
+      sendSignedTransaction(publicClient, "0x1234", "sync"),
+    ).rejects.toThrowError(
+      /Set submissionMode to realtime or sendAndWait before retrying/i,
+    );
+  });
+
+  it("propagates explicit sync submission errors instead of downgrading them", async () => {
     const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
       if (method === "eth_sendRawTransactionSync") {
         throw new Error("MegaETH sync submission failed.");
@@ -86,7 +98,7 @@ describe("rpc submission", () => {
     });
 
     await expect(
-      sendSignedTransaction(publicClient, "0x1234"),
+      sendSignedTransaction(publicClient, "0x1234", "sync"),
     ).rejects.toThrowError("MegaETH sync submission failed.");
   });
 
@@ -179,15 +191,13 @@ describe("rpc submission", () => {
     expect(mockedSendRawTransaction).not.toHaveBeenCalled();
   });
 
-  it("falls back to wallet sendTransaction only when raw signing is unsupported", async () => {
+  it("uses wallet sendTransaction within sendAndWait mode when raw signing is unsupported", async () => {
     const hash =
       "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-    const publicClient = createRequestDrivenPublicClient(async ({ method }) => {
-      if (method === "eth_sendRawTransactionSync") {
-        return hash;
-      }
-
-      throw new Error(`Unexpected request method: ${method}`);
+    const publicClient = createRequestDrivenPublicClient(async () => {
+      throw new Error(
+        "sendAndWait mode should not issue MegaETH RPC submission requests.",
+      );
     });
     const walletClient = createLocalWalletClient();
     mockedPrepareTransactionRequest.mockResolvedValueOnce({
@@ -210,12 +220,42 @@ describe("rpc submission", () => {
       chainId: megaethTestnet.id,
       data: "0x1234",
       publicClient,
+      submissionMode: "sendAndWait",
       to: "0x1111111111111111111111111111111111111111",
       walletClient,
     });
 
     expect(receipt.transactionHash).toBe(hash);
     expect(mockedSendTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("returns an instructive error when sync submission requires raw signing support", async () => {
+    const publicClient = createRequestDrivenPublicClient(async () => "0x");
+    const walletClient = createLocalWalletClient();
+    mockedPrepareTransactionRequest.mockResolvedValueOnce({
+      account: walletClient.account,
+      chain: megaethTestnet,
+      data: "0x1234",
+      to: "0x1111111111111111111111111111111111111111",
+    } as Awaited<ReturnType<typeof prepareTransactionRequest>>);
+    mockedSignTransaction.mockRejectedValueOnce({
+      code: 4200,
+      message: "signTransaction is not supported by this wallet.",
+    });
+
+    await expect(
+      submitTransaction({
+        account: walletClient.account,
+        chainId: megaethTestnet.id,
+        data: "0x1234",
+        publicClient,
+        submissionMode: "sync",
+        to: "0x1111111111111111111111111111111111111111",
+        walletClient,
+      }),
+    ).rejects.toThrowError(
+      /Set submissionMode to sendAndWait before retrying/i,
+    );
   });
 
   it("propagates signing errors when the wallet actually supports raw signing", async () => {
@@ -237,6 +277,7 @@ describe("rpc submission", () => {
         chainId: megaethTestnet.id,
         data: "0x1234",
         publicClient,
+        submissionMode: "sync",
         to: "0x1111111111111111111111111111111111111111",
         walletClient,
       }),

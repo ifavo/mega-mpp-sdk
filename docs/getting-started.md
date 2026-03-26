@@ -1,5 +1,61 @@
 # Getting Started
 
+This guide is the canonical onboarding path for the SDK.
+
+The mental model is:
+
+1. Configure explicit shared MegaETH settings once in `Mppx.create(...)`.
+2. Register `megaeth.charge()` or `megaeth.session(...)`.
+3. Issue request challenges from your route handler with only the request price.
+
+## What You Are Building
+
+Each flow has the same core actors:
+
+- payer wallet: signs Permit2 payloads or session vouchers
+- settlement wallet: broadcasts server-side transactions and receives funds
+- RPC: reads chain state and waits for receipts
+- token contract: holds balances and approvals
+- Permit2 or escrow contract: enforces the payment method
+- your server: issues challenges, verifies credentials, and serves the resource
+
+## Choose Your Path
+
+| If you need... | Choose | Why |
+| --- | --- | --- |
+| One payment per request | `charge` | Simple request-by-request settlement |
+| Many requests against one funded channel | `session` | Lower repeat overhead after the first open |
+| Server-sponsored charge gas | `charge` + Permit2 credential mode | The server broadcasts the settlement transaction |
+| Client-broadcast payment | `charge` + transaction-hash credential mode | The payer broadcasts and the server verifies the hash |
+
+## What Must Be Explicit
+
+Always set these values explicitly:
+
+- `chainId`: network selection decides the RPC, contract addresses, and validity of signatures and transactions
+- `recipient`: payee selection decides who actually receives the funds
+
+When the settlement wallet is also the payee, opt in visibly with `recipient: settlementAccount.address`.
+
+`charge` still defaults these values when you omit them:
+
+- `currency`: mainnet USDm
+- `permit2Address`: canonical Permit2
+
+## Flow Selection
+
+```mermaid
+flowchart TD
+  A["Protect a paid route"] --> B{"One payment or reusable channel?"}
+  B -->|"One payment"| C{"Who broadcasts the charge?"}
+  B -->|"Reusable channel"| D["Use session"]
+  C -->|"Server wallet"| E["Use charge with Permit2 credential mode"]
+  C -->|"Payer wallet"| F["Use charge with transaction-hash credential mode"]
+  D --> G["Open escrow once, then sign vouchers"]
+  E --> H["Server verifies signature and submits settlement"]
+  F --> I["Server verifies the on-chain transaction hash"]
+```
+
 ## Prerequisites
 
 - Node.js 20+
@@ -28,6 +84,184 @@ just ts-audit
 just release-prep
 ```
 
+## Explicit Server Charge
+
+This is the shortest explicit server setup for the mainnet/USDm path when the settlement wallet is intentionally also the payee:
+
+```ts
+import { Mppx, megaeth } from "mega-mpp-sdk/server";
+import { megaethMainnet } from "mega-mpp-sdk/chains";
+import { privateKeyToAccount } from "viem/accounts";
+
+const settlementAccount = privateKeyToAccount(
+  process.env.MEGAETH_SETTLEMENT_PRIVATE_KEY!,
+);
+const recipient = settlementAccount.address;
+
+const mppx = Mppx.create({
+  account: settlementAccount,
+  chainId: megaethMainnet.id,
+  methods: [megaeth.charge()],
+  recipient,
+  secretKey: process.env.MPP_SECRET_KEY!,
+});
+```
+
+Then issue the request challenge from the route:
+
+```ts
+const result = await mppx.megaeth.charge({
+  amount: "100000",
+  description: "Premium API response",
+})(request);
+
+if (result.status === 402) {
+  return result.challenge;
+}
+
+return result.withReceipt(new Response("ok"));
+```
+
+## Explicit Testnet Setup
+
+Use explicit chain objects whenever you want a readable override:
+
+```ts
+import { Mppx, Store, megaeth } from "mega-mpp-sdk/server";
+import { megaethTestnet } from "mega-mpp-sdk/chains";
+import { privateKeyToAccount } from "viem/accounts";
+
+const settlementAccount = privateKeyToAccount(
+  process.env.MEGAETH_SETTLEMENT_PRIVATE_KEY!,
+);
+const recipient = settlementAccount.address;
+
+const chargeMppx = Mppx.create({
+  account: settlementAccount,
+  chainId: megaethTestnet.id,
+  currency: process.env.MEGAETH_PAYMENT_TOKEN_ADDRESS!,
+  methods: [megaeth.charge({ submissionMode: "realtime" })],
+  recipient,
+  secretKey: process.env.MPP_SECRET_KEY!,
+});
+
+const sessionMppx = Mppx.create({
+  account: settlementAccount,
+  chainId: megaethTestnet.id,
+  currency: process.env.MEGAETH_PAYMENT_TOKEN_ADDRESS!,
+  methods: [
+    megaeth.session({
+      escrowContract: process.env.MEGAETH_SESSION_ESCROW_ADDRESS!,
+      settlement: {
+        close: { enabled: true },
+        periodic: {
+          intervalSeconds: 3600,
+          minUnsettledAmount: "200000",
+        },
+      },
+      store: Store.memory(),
+      suggestedDeposit: "500000",
+      unitType: "request",
+      verifier: {
+        allowDelegatedSigner: true,
+        minVoucherDelta: "100000",
+      },
+    }),
+  ],
+  recipient,
+  secretKey: process.env.MPP_SECRET_KEY!,
+});
+```
+
+## Charge Options
+
+### Credential Mode
+
+| Mode | When to use it | Broadcasts the transaction |
+| --- | --- | --- |
+| `permit2` | Server should sponsor gas or own the final settlement path | Server |
+| `hash` | Payer should broadcast directly and the server only verifies | Client |
+
+### Submission Mode
+
+| Mode | Good default? | Notes |
+| --- | --- | --- |
+| `realtime` | Best demo default | Shows MegaETH mini-block receipts when supported |
+| `sync` | Advanced only | Requires `eth_sendRawTransactionSync` support |
+| `sendAndWait` | Conservative fallback | Uses the standard send path plus receipt polling |
+
+## Charge Process Flows
+
+### Permit2 Credential Mode
+
+```mermaid
+sequenceDiagram
+  participant Client as Client Wallet
+  participant App as Browser/App
+  participant Server as Your Server
+  participant Permit2 as Permit2
+  participant RPC as MegaETH RPC
+
+  App->>Server: Protected request
+  Server-->>App: 402 challenge with amount, token, recipient
+  App->>Client: Sign Permit2 payload
+  Client-->>App: Signed Permit2 credential
+  App->>Server: Retry with Permit2 credential
+  Server->>RPC: Validate allowance, balance, and challenge
+  Server->>Permit2: Broadcast settlement transaction
+  Permit2-->>RPC: Transfer settles
+  Server-->>App: Paid resource + receipt
+```
+
+### Transaction-Hash Credential Mode
+
+```mermaid
+sequenceDiagram
+  participant Client as Client Wallet
+  participant App as Browser/App
+  participant Server as Your Server
+  participant Permit2 as Permit2
+  participant RPC as MegaETH RPC
+
+  App->>Server: Protected request
+  Server-->>App: 402 challenge with amount, token, recipient
+  App->>Client: Sign Permit2 payload
+  Client->>Permit2: Broadcast transaction
+  Permit2-->>RPC: Transfer settles
+  Client-->>App: Transaction hash
+  App->>Server: Retry with hash credential
+  Server->>RPC: Verify transaction hash against challenge
+  Server-->>App: Paid resource + receipt
+```
+
+## Session Process Flow
+
+```mermaid
+sequenceDiagram
+  participant Client as Payer Wallet
+  participant App as Browser/App
+  participant Server as Your Server
+  participant Escrow as Session Escrow
+  participant RPC as MegaETH RPC
+
+  App->>Server: First protected request
+  Server-->>App: 402 session challenge
+  App->>Client: Open escrow channel
+  Client->>Escrow: open(deposit)
+  Escrow-->>RPC: Channel exists on-chain
+  App->>Server: Retry with open credential
+  Server-->>App: Resource + channel state
+  loop Reusable requests
+    App->>Server: Next protected request
+    Server-->>App: 402 voucher challenge
+    App->>Client: Sign next cumulative voucher
+    App->>Server: Retry with voucher
+    Server->>RPC: Accept voucher and optionally settle
+    Server-->>App: Resource + updated channel state
+  end
+  App->>Client: Top up or close when needed
+```
+
 ## Demo Quickstart
 
 Choose one of these demo paths:
@@ -35,35 +269,44 @@ Choose one of these demo paths:
 - local development: `pnpm demo:server` and `pnpm demo:app`
 - Cloudflare compatibility: `pnpm demo:worker:build` and `pnpm demo:worker:dev`
 
-For the MegaETH Carrot demo, use two wallets:
+For the MegaETH Carrot walkthrough, use two wallets:
 
 - a server wallet with testnet ETH so it can pay gas for server-settled charge and session actions
 - a client wallet with testnet ETH plus testnet USDC so it can approve Permit2 for charge and escrow for session
 
-> [!IMPORTANT]
-> The testnet walkthrough uses testnet USDC at `0x75139a9559c9cd1ad69b7e239c216151d2c81e6f`, not the default USDm example token. Set `MEGAETH_TOKEN_ADDRESS` explicitly when you run against Carrot.
+For the Carrot walkthrough, wire in the current testnet network, payment token,
+explicit payee, and session escrow first:
 
-Export the shared demo environment in one terminal:
+```bash
+export MEGAETH_CHAIN_ID=6343
+export MEGAETH_RPC_URL=https://carrot.megaeth.com/rpc
+export MEGAETH_PAYMENT_TOKEN_ADDRESS=0x75139a9559c9cd1ad69b7e239c216151d2c81e6f
+export MEGAETH_RECIPIENT_ADDRESS=0xYOUR_SETTLEMENT_WALLET_ADDRESS
+export MEGAETH_SESSION_ESCROW_ADDRESS=0xD83A68408539868e5f48D0E93537f56afBB9d512
+```
+
+That minimal setup is enough to boot the local demo on testnet and inspect the
+configured charge and session routes:
+
+```bash
+pnpm demo:server
+pnpm demo:app
+```
+
+Funded charge and session requests need a few more variables:
 
 ```bash
 export PORT=3001
 export DEMO_PUBLIC_ORIGIN=http://localhost:3001
 export MPP_SECRET_KEY="$(openssl rand -hex 32)"
-export MEGAETH_TESTNET=true
-export MEGAETH_RPC_URL=https://carrot.megaeth.com/rpc
-export MEGAETH_TOKEN_ADDRESS=0x75139a9559c9cd1ad69b7e239c216151d2c81e6f
 export MEGAETH_PERMIT2_ADDRESS=0x000000000022D473030F116dDEE9F6B43aC78BA3
 export MEGAETH_SUBMISSION_MODE=realtime
 export MEGAETH_SETTLEMENT_PRIVATE_KEY='YOUR_SERVER_PRIVATE_KEY'
 export MEGAETH_FEE_PAYER=true
 ```
 
-Then startup is two commands:
-
-```bash
-pnpm demo:server
-pnpm demo:app
-```
+For the demo's server-broadcast Permit2 flow and session flow, keep
+`MEGAETH_RECIPIENT_ADDRESS` equal to the settlement wallet address.
 
 ### Charge Demo Preparation
 
@@ -71,11 +314,11 @@ Approve Permit2 once from the client wallet before the first funded charge run:
 
 ```bash
 export MEGAETH_RPC_URL=https://carrot.megaeth.com/rpc
-export MEGAETH_TOKEN_ADDRESS=0x75139a9559c9cd1ad69b7e239c216151d2c81e6f
+export MEGAETH_PAYMENT_TOKEN_ADDRESS=0x75139a9559c9cd1ad69b7e239c216151d2c81e6f
 export MEGAETH_PERMIT2_ADDRESS=0x000000000022D473030F116dDEE9F6B43aC78BA3
 export CLIENT_PRIVATE_KEY='YOUR_CLIENT_PRIVATE_KEY'
 
-cast send "$MEGAETH_TOKEN_ADDRESS" \
+cast send "$MEGAETH_PAYMENT_TOKEN_ADDRESS" \
   "approve(address,uint256)(bool)" \
   "$MEGAETH_PERMIT2_ADDRESS" \
   0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
@@ -83,13 +326,9 @@ cast send "$MEGAETH_TOKEN_ADDRESS" \
   --rpc-url "$MEGAETH_RPC_URL"
 ```
 
-After both processes are running, open `http://localhost:5173`, connect the client wallet, confirm the displayed cost in the `Run Flow` panel, choose `Charge`, select `Server submits Permit2 transaction`, and run the `Direct charge resource` endpoint.
-
 ### Session Demo Preparation
 
 Session flows need one extra piece of infrastructure: a deployed `MegaMppSessionEscrow`.
-
-Deploy one with Foundry:
 
 ```bash
 cd contracts
@@ -103,42 +342,16 @@ forge script script/DeployMegaMppSessionEscrow.s.sol:DeployMegaMppSessionEscrowS
   --broadcast
 ```
 
-> [!IMPORTANT]
-> On MegaETH, Foundry deployments should include `--skip-simulation`. Dry-run simulation is not reliable enough on the MegaETH RPC path for this deployment flow.
-
-Then export the proxy address in the same terminal where you start `pnpm demo:server`:
+Then export the proxy address:
 
 ```bash
 export MEGAETH_SESSION_ESCROW_ADDRESS='0xYOUR_ESCROW_PROXY'
 ```
 
-Use the proxy address, not the implementation address.
-
-If you want explorer verification after deployment, export the implementation and proxy addresses plus the verifier URL, then run:
+Approve the escrow contract once from the client wallet:
 
 ```bash
-pnpm contracts:verify
-```
-
-Before you use the deployed escrow in the demo, check these deployment decisions:
-
-- `SESSION_ESCROW_OWNER` can upgrade the UUPS proxy, so use a multisig or dedicated admin account instead of a casual hot wallet.
-- `SESSION_ESCROW_CLOSE_DELAY` controls how soon a payer can withdraw after `requestClose`. `86400` is a reasonable starting point, but shorter values reduce the payee reaction window.
-- `MEGAETH_SESSION_ESCROW_ADDRESS` must be the proxy address. The implementation address will not hold channel state.
-- the demo server recipient and settlement wallet should be the intended payee for the channels you open, because only the payee can call `settle` and `close`
-- session deposits require a direct ERC-20 approval to the escrow contract. Permit2 approval does not cover session deposits.
-- use standard ERC-20 tokens for session deposits. Fee-on-transfer or rebasing tokens can break the deposit and refund assumptions.
-- channel IDs include the chain ID and escrow address, so redeploying the escrow creates a new channel namespace
-
-Approve the escrow contract once from the client wallet for the token deposit:
-
-```bash
-export MEGAETH_RPC_URL=https://carrot.megaeth.com/rpc
-export MEGAETH_TOKEN_ADDRESS=0x75139a9559c9cd1ad69b7e239c216151d2c81e6f
-export MEGAETH_SESSION_ESCROW_ADDRESS='0xYOUR_ESCROW_PROXY'
-export CLIENT_PRIVATE_KEY='YOUR_CLIENT_PRIVATE_KEY'
-
-cast send "$MEGAETH_TOKEN_ADDRESS" \
+cast send "$MEGAETH_PAYMENT_TOKEN_ADDRESS" \
   "approve(address,uint256)(bool)" \
   "$MEGAETH_SESSION_ESCROW_ADDRESS" \
   0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
@@ -146,147 +359,49 @@ cast send "$MEGAETH_TOKEN_ADDRESS" \
   --rpc-url "$MEGAETH_RPC_URL"
 ```
 
-In the UI:
+## Requirements by Environment
 
-- choose `Session`
-- run the `Reusable session resource` endpoint once to auto-open the channel
-- use `Top Up` or `Close` to exercise management actions on the same route
+| Scenario | Required inputs | What to verify |
+| --- | --- | --- |
+| Local UI inspection | `pnpm demo:server`, `pnpm demo:app` | `/api/v1/health` and `/api/v1/config` explain blockers cleanly |
+| Testnet inspection with known token and escrow | `MEGAETH_CHAIN_ID`, `MEGAETH_RPC_URL`, `MEGAETH_PAYMENT_TOKEN_ADDRESS`, `MEGAETH_RECIPIENT_ADDRESS`, `MEGAETH_SESSION_ESCROW_ADDRESS` | UI and config payloads point at Carrot, testnet USDC, the configured payee, and the configured session escrow |
+| Funded testnet charge | settlement key, payer key, Permit2 approval, testnet USDC | Permit2 challenge, signature, settlement, receipt |
+| Funded testnet session | escrow contract, payer key, settlement key, escrow approval | open, voucher reuse, top-up, close, session state refresh |
+| Multi-instance production | durable replay store, durable session store, stable secret key | challenge replay protection and atomic channel updates across instances |
 
-The session client cleanup in `0.2.0` removes `managementOnly`. Pure management top-ups now use `context.action = "topUp"` with `authorizeCurrentRequest: false`.
+## Reliability Notes
 
-The demo shows:
+- Keep `MPP_SECRET_KEY` stable across process restarts so challenge verification stays valid.
+- `Store.memory()` is single-process only. Use a shared `channelStore` for multi-instance session runtimes.
+- Keep `chainId` and `recipient` explicit. The SDK should not infer network or payee from missing configuration.
+- The settlement wallet should be funded for every server-side on-chain action it is expected to broadcast.
+- Session payees and settlement wallets should stay aligned. The server must settle and close as the configured payee.
+- Permit2 approval only covers `charge`. Session deposits require a direct ERC-20 approval to the escrow contract.
 
-- current deposit
-- accepted cumulative value
-- settled amount
-- unsettled amount
-- signer mode
-- current channel status
+## Cloudflare Worker Appendix
 
-## Cloudflare Worker Demo
+The Worker demo keeps the same request flow, but serves the SPA and API from one origin and stores replay-sensitive state in a Durable Object. Use the runtime-specific notes in [demo.md](demo.md) once the local Node path is clear.
 
-The Worker demo serves the built SPA and the API from one origin with a Durable Object-backed replay store.
+## Deterministic and Live Verification
 
-Build and run it locally with:
-
-```bash
-pnpm demo:worker:build
-pnpm demo:worker:dev
-```
-
-Before you exercise funded Worker flows, set these secrets in `demo/worker`:
-
-```bash
-cd demo/worker
-pnpm wrangler secret put MPP_SECRET_KEY
-pnpm wrangler secret put MEGAETH_SETTLEMENT_PRIVATE_KEY
-```
-
-Optional Worker vars or secrets:
-
-- `MEGAETH_RECIPIENT_ADDRESS`
-- `MEGAETH_SESSION_ESCROW_ADDRESS`
-- `MEGAETH_SESSION_ALLOW_DELEGATED_SIGNER`
-- `MEGAETH_SESSION_MIN_VOUCHER_DELTA`
-- `MEGAETH_SESSION_SETTLE_INTERVAL_SECONDS`
-- `MEGAETH_SESSION_SETTLE_MIN_UNSETTLED_AMOUNT`
-- `MEGAETH_SESSION_SUGGESTED_DEPOSIT`
-- `MEGAETH_SPLIT_RECIPIENT`
-- `MEGAETH_SPLIT_AMOUNT`
-- `MEGAETH_FEE_PAYER`
-- `MEGAETH_PERMIT2_ADDRESS`
-- `MEGAETH_TOKEN_SYMBOL`
-- `MEGAETH_TOKEN_DECIMALS`
-
-The demo runtimes reuse the SDK's existing `submissionMode` option through `MEGAETH_SUBMISSION_MODE`. They default to `realtime` so MegaETH mini-block receipts are showcased out of the box.
-
-## Local Deterministic Flow
-
-The repository ships:
-
-- an Anvil-backed charge integration suite with a mock ERC-20 and mock Permit2
-- an Anvil-backed session integration suite with a mock ERC-20 and the in-repo upgradeable escrow contract
-- Foundry contract tests for the session escrow itself
-
-Run them with:
+Run the deterministic local suites with:
 
 ```bash
 pnpm contracts:test
 pnpm --dir typescript test:integration
 ```
 
-## Live Smoke Flow
-
-The live smoke suite is opt-in:
+Run the opt-in live suite with:
 
 ```bash
 pnpm --dir typescript test:live
 ```
 
-Set `RUN_MEGAETH_LIVE=true` and then choose one or both live configurations.
+Set `RUN_MEGAETH_LIVE=true`, then configure:
 
-### Readonly Live Checks
-
-Readonly checks verify:
-
-- RPC reachability
-- bytecode at Permit2 and token addresses
-- token read calls
-- submission mode parsing
-- optional session escrow deployment and domain separator reads when `MEGAETH_SESSION_ESCROW_ADDRESS` is set
-
-Required environment variables:
-
-- `RUN_MEGAETH_LIVE=true`
+- `MEGAETH_CHAIN_ID`
 - `MEGAETH_RPC_URL`
-
-Optional environment variables:
-
-- `MEGAETH_TESTNET=true|false`
-- `MEGAETH_PERMIT2_ADDRESS`
-- `MEGAETH_TOKEN_ADDRESS`
-- `MEGAETH_SUBMISSION_MODE=auto|sync|realtime|sendAndWait`
-- `MEGAETH_SESSION_ESCROW_ADDRESS`
-
-### Funded Charge Live Checks
-
-Additional required environment variables:
-
-- `MEGAETH_LIVE_PAYER_PRIVATE_KEY`
-- `MEGAETH_LIVE_RECIPIENT`
-
-Optional environment variables:
-
-- `MEGAETH_LIVE_AMOUNT`
-
-Before running funded charge live checks, make sure the payer wallet has:
-
-- MegaETH gas funds
-- the configured payment token balance
-- a Permit2 approval that covers `MEGAETH_LIVE_AMOUNT`
-
-### Funded Session Live Checks
-
-Additional required environment variables:
-
-- `MEGAETH_SESSION_ESCROW_ADDRESS`
-- `MEGAETH_LIVE_SESSION_PAYER_PRIVATE_KEY`
-- `MEGAETH_LIVE_SESSION_SERVER_PRIVATE_KEY`
-
-Optional environment variables:
-
-- `MEGAETH_LIVE_SESSION_AMOUNT`
-- `MEGAETH_LIVE_SESSION_DEPOSIT`
-
-Before running funded session live checks, make sure:
-
-- the payer wallet has MegaETH gas funds and token balance
-- the payer wallet has approved the escrow contract for at least `MEGAETH_LIVE_SESSION_DEPOSIT`
-- the server wallet has MegaETH gas funds for `settle` and `close`
-
-## Draft-Spec Behavior
-
-- Direct charge settlement signs the challenge `recipient` as the spender because PR 205 does not yet expose a separate spender field.
-- Split charge payments use a batch Permit2 extension when more than one transfer leg is needed.
-- Each charge and session flow resolves `chainId` explicitly from either `methodDetails.chainId` or `methodDetails.testnet`.
-- Session receipts stay aligned with `mppx`. `challengeId` remains part of verification context and problem details, but not the serialized `Payment-Receipt` header.
+- `MEGAETH_PERMIT2_ADDRESS` when you want a non-default Permit2 deployment
+- `MEGAETH_PAYMENT_TOKEN_ADDRESS` when you want a payment token other than mainnet USDm
+- `MEGAETH_SUBMISSION_MODE=sync|realtime|sendAndWait`
+- `MEGAETH_SESSION_ESCROW_ADDRESS` for session reads or funded session tests

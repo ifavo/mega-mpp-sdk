@@ -11,6 +11,7 @@ import {
   type Hex,
   type TypedDataDefinition,
 } from "viem";
+import { z } from "mppx";
 
 import { PERMIT2_ABI } from "../abi.js";
 import type {
@@ -38,6 +39,7 @@ const SINGLE_WITNESS_TYPEHASH = keccak256(stringToHex(SINGLE_WITNESS_TYPE));
 const BATCH_WITNESS_TYPEHASH = keccak256(stringToHex(BATCH_WITNESS_TYPE));
 const TRANSFER_DETAIL_TYPEHASH = keccak256(stringToHex(TRANSFER_DETAIL_TYPE));
 const BASE_UNIT_INTEGER_PATTERN = /^\d+$/;
+const HEX_BYTES_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
 
 type PermitTypedData = TypedDataDefinition<
   Record<string, Array<{ name: string; type: string }>>,
@@ -77,6 +79,51 @@ type DecodedSingleTransfer = {
   owner: Address;
   signature: Hex;
 };
+
+const decodedTokenPermissionSchema = z.object({
+  token: z.address(),
+  amount: z.bigint(),
+});
+
+const decodedTransferDetailSchema = z.object({
+  to: z.address(),
+  requestedAmount: z.bigint(),
+});
+
+const hexBytesSchema = z
+  .string()
+  .check(
+    z.regex(
+      HEX_BYTES_PATTERN,
+      "Use a hex-encoded Permit2 signature before retrying the MegaETH payment.",
+    ),
+  );
+
+const decodedSingleTransferArgumentsSchema = z.tuple([
+  z.object({
+    permitted: decodedTokenPermissionSchema,
+    nonce: z.bigint(),
+    deadline: z.bigint(),
+  }),
+  decodedTransferDetailSchema,
+  z.address(),
+  z.hash(),
+  z.string(),
+  hexBytesSchema,
+]);
+
+const decodedBatchTransferArgumentsSchema = z.tuple([
+  z.object({
+    permitted: z.array(decodedTokenPermissionSchema),
+    nonce: z.bigint(),
+    deadline: z.bigint(),
+  }),
+  z.array(decodedTransferDetailSchema),
+  z.address(),
+  z.hash(),
+  z.string(),
+  hexBytesSchema,
+]);
 
 export class Permit2ValidationError extends Error {
   constructor(message: string) {
@@ -568,9 +615,7 @@ export function decodePermit2Transaction(input: Hex): {
     );
   }
 
-  const normalizedTransfer = normalizeDecodedTransferArguments(
-    decoded.args as readonly unknown[],
-  );
+  const normalizedTransfer = parseDecodedTransferArguments(decoded.args);
   if (normalizedTransfer.isBatch) {
     const { owner, permit, signature, transferDetails } = normalizedTransfer;
     const payload: ChargePermit2Payload = {
@@ -666,54 +711,71 @@ export function splitSummary(splits?: ChargeSplit[] | undefined): string {
   return `${splits.length} split${splits.length === 1 ? "" : "s"}`;
 }
 
+export function parseDecodedTransferArguments(
+  args: readonly unknown[] | undefined,
+): DecodedBatchTransfer | DecodedSingleTransfer {
+  if (!Array.isArray(args)) {
+    throw new Permit2PayloadError(
+      "Use a Permit2 witness transfer transaction before retrying the MegaETH payment.",
+    );
+  }
+
+  return normalizeDecodedTransferArguments(args);
+}
+
 function normalizeDecodedTransferArguments(
   args: readonly unknown[],
 ): DecodedBatchTransfer | DecodedSingleTransfer {
-  const permit = args[0] as
-    | {
-        permitted: Array<{ token: Address; amount: bigint }>;
-        nonce: bigint;
-        deadline: bigint;
-      }
-    | {
-        permitted: { token: Address; amount: bigint };
-        nonce: bigint;
-        deadline: bigint;
-      };
-  const owner = getAddress(args[2] as Address) as Address;
-  const signature = args[5] as Hex;
-
-  if (Array.isArray(permit.permitted)) {
+  const batchResult = decodedBatchTransferArgumentsSchema.safeParse(args);
+  if (batchResult.success) {
+    const [permit, transferDetails, owner, , , signature] = batchResult.data;
     return {
       isBatch: true,
       permit: {
-        permitted: permit.permitted,
+        permitted: permit.permitted.map((entry) => ({
+          amount: entry.amount,
+          token: getAddress(entry.token) as Address,
+        })),
         nonce: permit.nonce,
         deadline: permit.deadline,
       },
-      transferDetails: args[1] as Array<{
-        to: Address;
-        requestedAmount: bigint;
-      }>,
-      owner,
-      signature,
+      transferDetails: transferDetails.map((entry) => ({
+        requestedAmount: entry.requestedAmount,
+        to: getAddress(entry.to) as Address,
+      })),
+      owner: getAddress(owner) as Address,
+      signature: signature as Hex,
     };
   }
 
-  return {
-    isBatch: false,
-    permit: {
-      permitted: permit.permitted,
-      nonce: permit.nonce,
-      deadline: permit.deadline,
+  const singleResult = decodedSingleTransferArgumentsSchema.safeParse(args);
+  if (singleResult.success) {
+    const [permit, transferDetails, owner, , , signature] = singleResult.data;
+    return {
+      isBatch: false,
+      permit: {
+        permitted: {
+          amount: permit.permitted.amount,
+          token: getAddress(permit.permitted.token) as Address,
+        },
+        nonce: permit.nonce,
+        deadline: permit.deadline,
+      },
+      transferDetails: {
+        requestedAmount: transferDetails.requestedAmount,
+        to: getAddress(transferDetails.to) as Address,
+      },
+      owner: getAddress(owner) as Address,
+      signature: signature as Hex,
+    };
+  }
+
+  throw new Permit2PayloadError(
+    "Use a Permit2 witness transfer transaction before retrying the MegaETH payment.",
+    {
+      cause: singleResult.error,
     },
-    transferDetails: args[1] as {
-      to: Address;
-      requestedAmount: bigint;
-    },
-    owner,
-    signature,
-  };
+  );
 }
 
 function parseBaseUnitInteger(value: string, label: string): bigint {

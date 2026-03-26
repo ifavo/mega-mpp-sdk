@@ -9,6 +9,7 @@ import {
 } from "viem/actions";
 
 import * as Methods from "../Methods.js";
+import { DEFAULT_USDM } from "../constants.js";
 import { SESSION_ESCROW_ABI } from "../session/abi.js";
 import {
   computeSessionChannelId,
@@ -33,11 +34,17 @@ import {
   type WalletClientResolver,
 } from "../utils/clients.js";
 import { parseDidPkhSource } from "../utils/source.js";
+import { attachMegaethServerMethodMetadata } from "./methodMetadata.js";
 
 export function session(
   parameters: session.Parameters,
 ): Method.Server<typeof Methods.session> {
   const { account, store = Store.memory() } = parameters;
+  const configuredCurrency = getAddress(
+    parameters.currency ?? DEFAULT_USDM.address,
+  );
+  const configuredRecipient = resolveConfiguredRecipient(parameters);
+  const configuredAccountAddress = resolveConfiguredAccountAddress(account);
 
   if (!parameters.settlement) {
     throw badRequest(
@@ -51,146 +58,181 @@ export function session(
     );
   }
 
+  if (
+    configuredAccountAddress &&
+    configuredRecipient &&
+    configuredAccountAddress !== configuredRecipient
+  ) {
+    throw badRequest(
+      "Set recipient to the settlement wallet address before creating the MegaETH session server so settle and close actions use the configured payee.",
+    );
+  }
+
   const channelStore =
     parameters.channelStore ??
     createSessionChannelStore(asSingleProcessSessionStore(store));
 
-  return Method.toServer(Methods.session, {
-    async request({ credential, request }) {
-      if (credential) {
-        return credential.challenge.request as typeof request;
-      }
+  return attachMegaethServerMethodMetadata(
+    Method.toServer(Methods.session, {
+      defaults: {
+        currency: configuredCurrency,
+        ...(configuredRecipient ? { recipient: configuredRecipient } : {}),
+        ...(parameters.suggestedDeposit
+          ? { suggestedDeposit: parameters.suggestedDeposit }
+          : {}),
+        ...(parameters.unitType ? { unitType: parameters.unitType } : {}),
+        ...(parameters.escrowContract
+          ? {
+              methodDetails: {
+                escrowContract: parameters.escrowContract,
+                ...(parameters.chainId ? { chainId: parameters.chainId } : {}),
+                ...(parameters.verifier?.minVoucherDelta
+                  ? { minVoucherDelta: parameters.verifier.minVoucherDelta }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+      async request({ credential, request }) {
+        if (credential) {
+          return credential.challenge.request as typeof request;
+        }
 
-      const chainId = resolveChainId({
-        chainId: request.methodDetails.chainId ?? parameters.chainId,
-        testnet: parameters.testnet,
-      });
-      const recipient = resolveRequestAddress({
-        configured: parameters.recipient,
-        label: "a recipient address",
-        value: request.recipient as Address | undefined,
-      });
-      const currency = resolveRequestAddress({
-        configured: parameters.currency,
-        label: "a currency address",
-        value: request.currency as Address | undefined,
-      });
-      const escrowContract = resolveRequestAddress({
-        configured: parameters.escrowContract,
-        label: "an escrow contract address",
-        value: request.methodDetails.escrowContract as Address | undefined,
-      });
-
-      return {
-        ...request,
-        currency,
-        recipient,
-        ...(request.suggestedDeposit
-          ? {}
-          : parameters.suggestedDeposit
-            ? { suggestedDeposit: parameters.suggestedDeposit }
-            : {}),
-        ...(request.unitType
-          ? {}
-          : parameters.unitType
-            ? { unitType: parameters.unitType }
-            : {}),
-        methodDetails: {
-          ...request.methodDetails,
-          chainId,
-          escrowContract,
-          ...(request.methodDetails.minVoucherDelta
-            ? {}
-            : parameters.verifier?.minVoucherDelta
-              ? { minVoucherDelta: parameters.verifier.minVoucherDelta }
-              : {}),
-        },
-      };
-    },
-
-    async verify({ credential }) {
-      const challenge = credential.challenge.request;
-      const chainId = resolveSessionChallengeChainId(challenge);
-      const publicClient = await resolvePublicClient(parameters, chainId);
-      const challengeId = credential.challenge.id;
-
-      if (
-        credential.challenge.expires &&
-        new Date(credential.challenge.expires) < new Date()
-      ) {
-        throw new Errors.PaymentExpiredError({
-          expires: credential.challenge.expires,
+        const chainId = resolveRequestChainId({
+          chainId: request.methodDetails.chainId ?? parameters.chainId,
         });
-      }
+        const recipient = resolveRequestAddress({
+          configured: configuredRecipient,
+          label: "a recipient address",
+          value: request.recipient as Address | undefined,
+        });
+        const currency = resolveRequestAddress({
+          configured: configuredCurrency,
+          label: "a currency address",
+          value: request.currency as Address | undefined,
+        });
+        const escrowContract = resolveRequestAddress({
+          configured: parameters.escrowContract,
+          label: "an escrow contract address",
+          value: request.methodDetails.escrowContract as Address | undefined,
+        });
 
-      await assertChallengeAvailable(store, challengeId);
+        return {
+          ...request,
+          currency,
+          recipient,
+          ...(request.suggestedDeposit
+            ? {}
+            : parameters.suggestedDeposit
+              ? { suggestedDeposit: parameters.suggestedDeposit }
+              : {}),
+          ...(request.unitType
+            ? {}
+            : parameters.unitType
+              ? { unitType: parameters.unitType }
+              : {}),
+          methodDetails: {
+            ...request.methodDetails,
+            chainId,
+            escrowContract,
+            ...(request.methodDetails.minVoucherDelta
+              ? {}
+              : parameters.verifier?.minVoucherDelta
+                ? { minVoucherDelta: parameters.verifier.minVoucherDelta }
+                : {}),
+          },
+        };
+      },
 
-      switch (credential.payload.action) {
-        case "open":
-          return verifyOpenAction({
-            account,
-            challenge,
-            challengeId,
-            channelStore,
-            parameters,
-            payload: credential.payload,
-            publicClient,
-            source: credential.source,
-            store,
+      async verify({ credential }) {
+        const challenge = credential.challenge.request;
+        const chainId = resolveSessionChallengeChainId(challenge);
+        const publicClient = await resolvePublicClient(parameters, chainId);
+        const challengeId = credential.challenge.id;
+
+        if (
+          credential.challenge.expires &&
+          new Date(credential.challenge.expires) < new Date()
+        ) {
+          throw new Errors.PaymentExpiredError({
+            expires: credential.challenge.expires,
           });
-        case "topUp":
-          return verifyTopUpAction({
-            account,
-            challenge,
-            challengeId,
-            channelStore,
-            parameters,
-            payload: credential.payload,
-            publicClient,
-            source: credential.source,
-            store,
-          });
-        case "voucher":
-          return verifyVoucherAction({
-            challenge,
-            challengeId,
-            channelStore,
-            parameters,
-            payload: credential.payload,
-            publicClient,
-            source: credential.source,
-            store,
-          });
-        case "close":
-          return verifyCloseAction({
-            account,
-            challenge,
-            challengeId,
-            channelStore,
-            parameters,
-            payload: credential.payload,
-            publicClient,
-            source: credential.source,
-            store,
-          });
-      }
+        }
+
+        await assertChallengeAvailable(store, challengeId);
+
+        switch (credential.payload.action) {
+          case "open":
+            return verifyOpenAction({
+              account,
+              challenge,
+              challengeId,
+              channelStore,
+              parameters,
+              payload: credential.payload,
+              publicClient,
+              source: credential.source,
+              store,
+            });
+          case "topUp":
+            return verifyTopUpAction({
+              account,
+              challenge,
+              challengeId,
+              channelStore,
+              parameters,
+              payload: credential.payload,
+              publicClient,
+              source: credential.source,
+              store,
+            });
+          case "voucher":
+            return verifyVoucherAction({
+              challenge,
+              challengeId,
+              channelStore,
+              parameters,
+              payload: credential.payload,
+              publicClient,
+              source: credential.source,
+              store,
+            });
+          case "close":
+            return verifyCloseAction({
+              account,
+              challenge,
+              challengeId,
+              channelStore,
+              parameters,
+              payload: credential.payload,
+              publicClient,
+              source: credential.source,
+              store,
+            });
+        }
+      },
+
+      respond({ credential }) {
+        if (credential.payload.action === "close") {
+          return new Response(null, { status: 204 });
+        }
+
+        if (
+          credential.payload.action === "topUp" &&
+          (!credential.payload.cumulativeAmount ||
+            !credential.payload.signature)
+        ) {
+          return new Response(null, { status: 204 });
+        }
+
+        return undefined;
+      },
+    }),
+    {
+      intent: "session",
+      parameters,
     },
-
-    respond({ credential }) {
-      if (credential.payload.action === "close") {
-        return new Response(null, { status: 204 });
-      }
-
-      if (
-        credential.payload.action === "topUp" &&
-        (!credential.payload.cumulativeAmount || !credential.payload.signature)
-      ) {
-        return new Response(null, { status: 204 });
-      }
-
-      return undefined;
-    },
-  });
+  );
 }
 
 async function verifyOpenAction(parameters: {
@@ -1065,6 +1107,28 @@ function normalizeReason(reason: string): string {
   return reason.trim().replace(/\.+$/, "");
 }
 
+function toReason(error: unknown): string {
+  if (error instanceof Error) return normalizeReason(error.message);
+  return "Retry after correcting the MegaETH session configuration";
+}
+
+function resolveConfiguredAccountAddress(
+  account?: Account | Address | undefined,
+): Address | undefined {
+  if (!account) {
+    return undefined;
+  }
+
+  return getAddress(typeof account === "string" ? account : account.address);
+}
+
+function resolveConfiguredRecipient(parameters: {
+  account?: Account | Address | undefined;
+  recipient?: Address | undefined;
+}): Address | undefined {
+  return parameters.recipient ? getAddress(parameters.recipient) : undefined;
+}
+
 function resolveRequestAddress(parameters: {
   configured?: Address | undefined;
   label: string;
@@ -1078,6 +1142,16 @@ function resolveRequestAddress(parameters: {
   }
 
   return getAddress(resolved);
+}
+
+function resolveRequestChainId(parameters: {
+  chainId?: number | undefined;
+}): number {
+  try {
+    return resolveChainId(parameters);
+  } catch (error) {
+    throw badRequest(toReason(error));
+  }
 }
 
 function resolveSessionChallengeChainId(
@@ -1112,7 +1186,6 @@ export declare namespace session {
     };
     store?: Store.Store | undefined;
     suggestedDeposit?: string | undefined;
-    testnet?: boolean | undefined;
     unitType?: string | undefined;
     verifier?: {
       allowDelegatedSigner?: boolean | undefined;

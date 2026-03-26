@@ -1,7 +1,6 @@
-export type SubmissionMode = "auto" | "sync" | "realtime" | "sendAndWait";
+export type SubmissionMode = "sync" | "realtime" | "sendAndWait";
 
 export const submissionModes = [
-  "auto",
   "sync",
   "realtime",
   "sendAndWait",
@@ -18,17 +17,23 @@ export function parseSubmissionMode(
     variableName?: string | undefined;
   } = {},
 ): SubmissionMode {
+  const variableName = parameters.variableName ?? "submission mode";
   if (!value) {
-    return parameters.defaultMode ?? "auto";
+    if (parameters.defaultMode) {
+      return parameters.defaultMode;
+    }
+
+    throw new Error(
+      `Set ${variableName} to sync, realtime, or sendAndWait before retrying.`,
+    );
   }
 
   if (isSubmissionMode(value)) {
     return value;
   }
 
-  const variableName = parameters.variableName ?? "submission mode";
   throw new Error(
-    `Set ${variableName} to auto, sync, realtime, or sendAndWait before retrying.`,
+    `Set ${variableName} to sync, realtime, or sendAndWait before retrying.`,
   );
 }
 
@@ -41,11 +46,7 @@ export function formatSubmissionModeLabel(mode: SubmissionMode): string {
     return "Send + Wait";
   }
 
-  if (mode === "sync") {
-    return "Sync";
-  }
-
-  return "Auto";
+  return "Sync";
 }
 
 export function describeSubmissionMode(mode: SubmissionMode): string {
@@ -61,5 +62,5 @@ export function describeSubmissionMode(mode: SubmissionMode): string {
     return "Standard transaction submission broadcasts the transaction hash and waits for the receipt.";
   }
 
-  return "Compatibility mode tries MegaETH sync submission first, then realtime submission, then standard transaction submission when earlier methods are unsupported.";
+  return "MegaETH sync submission requires eth_sendRawTransactionSync to return a receipt immediately.";
 }

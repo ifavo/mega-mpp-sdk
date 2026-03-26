@@ -1,10 +1,12 @@
 import {
   DEFAULT_USDM,
+  MEGAETH_TESTNET_CHAIN_ID,
   PERMIT2_ADDRESS,
   TESTNET_USDC,
   megaeth as megaethChain,
   megaethTestnet,
 } from "../../../typescript/packages/mpp/src/constants.js";
+import { resolveChain } from "../../../typescript/packages/mpp/src/utils/clients.js";
 import {
   describeSubmissionMode,
   parseSubmissionMode,
@@ -28,6 +30,10 @@ import { privateKeyToAccount } from "viem/accounts";
 export type DemoEnvironmentBindings = {
   DEMO_PUBLIC_ORIGIN?: string | undefined;
   MEGAETH_FEE_PAYER?: string | undefined;
+  MEGAETH_CHAIN_ID?: string | undefined;
+  MEGAETH_PAYMENT_TOKEN_ADDRESS?: DemoAddress | undefined;
+  MEGAETH_PAYMENT_TOKEN_DECIMALS?: string | undefined;
+  MEGAETH_PAYMENT_TOKEN_SYMBOL?: string | undefined;
   MEGAETH_PERMIT2_ADDRESS?: DemoAddress | undefined;
   MEGAETH_RECIPIENT_ADDRESS?: DemoAddress | undefined;
   MEGAETH_RPC_URL?: string | undefined;
@@ -41,10 +47,6 @@ export type DemoEnvironmentBindings = {
   MEGAETH_SETTLEMENT_PRIVATE_KEY?: DemoAddress | undefined;
   MEGAETH_SPLIT_AMOUNT?: string | undefined;
   MEGAETH_SPLIT_RECIPIENT?: DemoAddress | undefined;
-  MEGAETH_TESTNET?: string | undefined;
-  MEGAETH_TOKEN_ADDRESS?: DemoAddress | undefined;
-  MEGAETH_TOKEN_DECIMALS?: string | undefined;
-  MEGAETH_TOKEN_SYMBOL?: string | undefined;
   MPP_SECRET_KEY?: string | undefined;
   PORT?: string | undefined;
 };
@@ -63,7 +65,6 @@ export type DemoEnvironment = {
   submissionMode: SubmissionMode;
   splitAmount: string;
   splitRecipient?: `0x${string}` | undefined;
-  testnet: boolean;
   tokenAddress: `0x${string}`;
   tokenMetadata: {
     decimals: number;
@@ -81,10 +82,10 @@ export function createDemoEnvironment(parameters: {
   bindings?: DemoEnvironmentBindings | undefined;
 }): DemoEnvironment {
   const bindings = parameters.bindings ?? {};
-  const testnet = bindings.MEGAETH_TESTNET !== "false";
-  const chain = testnet ? megaethTestnet : megaethChain;
+  const chainId = resolveDemoChainId(bindings.MEGAETH_CHAIN_ID);
+  const chain = resolveChain(chainId) as typeof megaethChain | typeof megaethTestnet;
   const rpcUrl = bindings.MEGAETH_RPC_URL ?? chain.rpcUrls.default.http[0]!;
-  const tokenAddress = (bindings.MEGAETH_TOKEN_ADDRESS ??
+  const paymentTokenAddress = (bindings.MEGAETH_PAYMENT_TOKEN_ADDRESS ??
     DEFAULT_USDM.address) as `0x${string}`;
   const permit2Address = (bindings.MEGAETH_PERMIT2_ADDRESS ??
     PERMIT2_ADDRESS) as `0x${string}`;
@@ -118,8 +119,9 @@ export function createDemoEnvironment(parameters: {
   const settlementAccount = settlementKey
     ? privateKeyToAccount(settlementKey)
     : undefined;
-  const recipientAddress = (bindings.MEGAETH_RECIPIENT_ADDRESS ??
-    settlementAccount?.address) as `0x${string}` | undefined;
+  const recipientAddress = bindings.MEGAETH_RECIPIENT_ADDRESS as
+    | `0x${string}`
+    | undefined;
 
   return {
     apiOrigin: parameters.apiOrigin,
@@ -150,13 +152,12 @@ export function createDemoEnvironment(parameters: {
     submissionMode,
     splitAmount,
     ...(splitRecipient ? { splitRecipient } : {}),
-    testnet,
-    tokenAddress,
+    tokenAddress: paymentTokenAddress,
     tokenMetadata: resolveTokenMetadata({
-      configuredDecimals: bindings.MEGAETH_TOKEN_DECIMALS,
-      configuredSymbol: bindings.MEGAETH_TOKEN_SYMBOL,
-      testnet,
-      tokenAddress,
+      configuredDecimals: bindings.MEGAETH_PAYMENT_TOKEN_DECIMALS,
+      configuredSymbol: bindings.MEGAETH_PAYMENT_TOKEN_SYMBOL,
+      chainId: chain.id,
+      tokenAddress: paymentTokenAddress,
     }),
   };
 }
@@ -189,6 +190,7 @@ export function createDemoConfig(environment: DemoEnvironment): DemoConfig {
     apiOrigin: environment.apiOrigin,
     canSettle: environment.modeStatuses.permit2.ready,
     chainId: environment.chain.id,
+    chainName: environment.chain.name,
     feePayer: environment.feePayer,
     modes: environment.modeStatuses,
     permit2Address: environment.permit2Address,
@@ -202,7 +204,6 @@ export function createDemoConfig(environment: DemoEnvironment): DemoConfig {
     ...(environment.splitRecipient
       ? { splitRecipient: environment.splitRecipient }
       : {}),
-    testnet: environment.testnet,
     tokenAddress: environment.tokenAddress,
     tokenDecimals: environment.tokenMetadata.decimals,
     tokenSymbol: environment.tokenMetadata.symbol,
@@ -242,7 +243,18 @@ export function createSessionConfig(parameters: {
 
   if (!parameters.recipientAddress) {
     blockers.push(
-      "Set MEGAETH_RECIPIENT_ADDRESS or MEGAETH_SETTLEMENT_PRIVATE_KEY before retrying. The session demo needs a configured recipient address.",
+      "Set MEGAETH_RECIPIENT_ADDRESS before retrying. The session demo needs an explicit payee address and does not infer it from the settlement wallet.",
+    );
+  }
+
+  if (
+    parameters.recipientAddress &&
+    parameters.settlementAccount &&
+    parameters.recipientAddress.toLowerCase() !==
+      parameters.settlementAccount.address.toLowerCase()
+  ) {
+    blockers.push(
+      "Set MEGAETH_RECIPIENT_ADDRESS to the settlement wallet address, or use the settlement wallet as the recipient before retrying. Session settle and close actions must run as the configured payee.",
     );
   }
 
@@ -293,8 +305,22 @@ export function createModeStatuses(parameters: {
   }
 
   if (!parameters.recipientAddress) {
+    permit2Blockers.push(
+      "Set MEGAETH_RECIPIENT_ADDRESS before retrying. Server-broadcast Permit2 settlement needs an explicit payee address and does not infer it from the settlement wallet.",
+    );
     hashBlockers.push(
-      "Set MEGAETH_RECIPIENT_ADDRESS or MEGAETH_SETTLEMENT_PRIVATE_KEY before retrying. Transaction-hash credential verification needs a configured recipient address.",
+      "Set MEGAETH_RECIPIENT_ADDRESS before retrying. Transaction-hash credential verification needs an explicit payee address.",
+    );
+  }
+
+  if (
+    parameters.recipientAddress &&
+    parameters.settlementAccount &&
+    parameters.recipientAddress.toLowerCase() !==
+      parameters.settlementAccount.address.toLowerCase()
+  ) {
+    permit2Blockers.push(
+      "Set MEGAETH_RECIPIENT_ADDRESS to the settlement wallet address before retrying. Server-broadcast Permit2 settlement currently uses the configured payee as the spender.",
     );
   }
 
@@ -314,8 +340,8 @@ export function createModeStatuses(parameters: {
       feePayer: parameters.feePayer,
       label: demoModeLabels.permit2,
       ready: permit2Blockers.length === 0,
-      ...(parameters.settlementAccount
-        ? { recipient: parameters.settlementAccount.address }
+      ...(parameters.recipientAddress
+        ? { recipient: parameters.recipientAddress }
         : {}),
       transactionSender: "server",
     },
@@ -325,7 +351,7 @@ export function createModeStatuses(parameters: {
 export function resolveTokenMetadata(parameters: {
   configuredDecimals?: string | undefined;
   configuredSymbol?: string | undefined;
-  testnet: boolean;
+  chainId: number;
   tokenAddress: `0x${string}`;
 }): {
   decimals: number;
@@ -339,13 +365,30 @@ export function resolveTokenMetadata(parameters: {
   }
 
   if (
-    parameters.testnet &&
+    parameters.chainId === MEGAETH_TESTNET_CHAIN_ID &&
     parameters.tokenAddress.toLowerCase() === TESTNET_USDC.address
   ) {
     return TESTNET_USDC;
   }
 
   return DEFAULT_USDM;
+}
+
+function resolveDemoChainId(value: string | undefined): number {
+  if (!value) {
+    throw new Error(
+      "Set MEGAETH_CHAIN_ID before retrying the demo startup. Network selection is required so the demo uses the intended MegaETH RPC and contracts.",
+    );
+  }
+
+  const chainId = Number(value);
+  if (!Number.isInteger(chainId)) {
+    throw new Error(
+      "Set MEGAETH_CHAIN_ID to a numeric MegaETH chain id before retrying the demo startup.",
+    );
+  }
+
+  return chainId;
 }
 
 export function resolveDemoStatus(

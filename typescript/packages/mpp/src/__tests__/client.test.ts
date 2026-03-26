@@ -71,6 +71,7 @@ describe("megaeth charge client progress", () => {
         );
       },
       publicClient: createStaticPublicClient(),
+      submissionMode: "sendAndWait",
       walletClient: createLocalWalletClient(),
     });
 
@@ -92,5 +93,22 @@ describe("megaeth charge client progress", () => {
       type: "hash",
     });
     expect(mockedSubmitTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("requires an explicit submission mode for transaction-hash credentials", async () => {
+    const method = clientCharge({
+      account: payer,
+      credentialMode: "hash",
+      publicClient: createStaticPublicClient(),
+      walletClient: createLocalWalletClient(),
+    });
+
+    await expect(
+      method.createCredential({
+        challenge: createChallenge(),
+      }),
+    ).rejects.toThrowError(
+      /Set submissionMode for the client-broadcast charge flow to sync, realtime, or sendAndWait/i,
+    );
   });
 });

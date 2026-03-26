@@ -56,7 +56,9 @@ export function createDemoRuntimeSet(parameters: {
     hash: {
       ...environment.modeStatuses.hash,
       mppx:
-        environment.secretKey && environment.recipientAddress
+        environment.modeStatuses.hash.ready &&
+        environment.secretKey &&
+        environment.recipientAddress
           ? createHashChargeMppx({
               environment,
               publicClient,
@@ -68,10 +70,15 @@ export function createDemoRuntimeSet(parameters: {
     permit2: {
       ...environment.modeStatuses.permit2,
       mppx:
-        environment.secretKey && environment.settlementAccount && walletClient
+        environment.modeStatuses.permit2.ready &&
+        environment.secretKey &&
+        environment.recipientAddress &&
+        environment.settlementAccount &&
+        walletClient
           ? createPermit2ChargeMppx({
               environment,
               publicClient,
+              recipient: environment.recipientAddress,
               store,
               walletClient,
             })
@@ -110,17 +117,16 @@ function createHashChargeMppx(parameters: {
   store: Store.Store;
 }) {
   return Mppx.create({
+    chainId: parameters.environment.chain.id,
+    currency: parameters.environment.tokenAddress,
+    permit2Address: parameters.environment.permit2Address,
+    publicClient: parameters.publicClient,
+    recipient: parameters.recipient,
+    rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
     methods: [
       megaethMethod.charge({
-        chainId: parameters.environment.chain.id,
-        currency: parameters.environment.tokenAddress,
         feePayer: false,
-        permit2Address: parameters.environment.permit2Address,
-        publicClient: parameters.publicClient,
-        recipient: parameters.recipient,
-        rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
         store: parameters.store,
-        testnet: parameters.environment.testnet,
       }),
     ],
     realm: new URL(parameters.environment.apiOrigin).host,
@@ -131,24 +137,24 @@ function createHashChargeMppx(parameters: {
 function createPermit2ChargeMppx(parameters: {
   environment: DemoEnvironment;
   publicClient: PublicClient;
+  recipient: `0x${string}`;
   store: Store.Store;
   walletClient: WalletClient;
 }) {
   return Mppx.create({
+    account: parameters.environment.settlementAccount!,
+    chainId: parameters.environment.chain.id,
+    currency: parameters.environment.tokenAddress,
+    feePayer: parameters.environment.feePayer,
+    permit2Address: parameters.environment.permit2Address,
+    publicClient: parameters.publicClient,
+    recipient: parameters.recipient,
+    rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
+    submissionMode: parameters.environment.submissionMode,
+    walletClient: parameters.walletClient,
     methods: [
       megaethMethod.charge({
-        account: parameters.environment.settlementAccount!,
-        chainId: parameters.environment.chain.id,
-        currency: parameters.environment.tokenAddress,
-        feePayer: parameters.environment.feePayer,
-        permit2Address: parameters.environment.permit2Address,
-        publicClient: parameters.publicClient,
-        recipient: parameters.environment.settlementAccount!.address,
-        rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
         store: parameters.store,
-        submissionMode: parameters.environment.submissionMode,
-        testnet: parameters.environment.testnet,
-        walletClient: parameters.walletClient,
       }),
     ],
     realm: new URL(parameters.environment.apiOrigin).host,
@@ -164,15 +170,16 @@ function createSessionMppx(parameters: {
   walletClient: WalletClient;
 }) {
   return Mppx.create({
+    account: parameters.environment.settlementAccount!,
+    chainId: parameters.environment.chain.id,
+    currency: parameters.environment.tokenAddress,
+    publicClient: parameters.publicClient,
+    recipient: parameters.recipient,
+    rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
+    walletClient: parameters.walletClient,
     methods: [
       megaethMethod.session({
-        account: parameters.environment.settlementAccount!,
-        chainId: parameters.environment.chain.id,
-        currency: parameters.environment.tokenAddress,
         escrowContract: parameters.environment.session.escrowContract!,
-        publicClient: parameters.publicClient,
-        recipient: parameters.recipient,
-        rpcUrls: { [parameters.environment.chain.id]: parameters.environment.rpcUrl },
         settlement: {
           close: { enabled: parameters.environment.session.closeEnabled },
           periodic: {
@@ -184,14 +191,12 @@ function createSessionMppx(parameters: {
         },
         store: parameters.store,
         suggestedDeposit: parameters.environment.session.suggestedDeposit,
-        testnet: parameters.environment.testnet,
         unitType: "request",
         verifier: {
           allowDelegatedSigner:
             parameters.environment.session.allowDelegatedSigner,
           minVoucherDelta: parameters.environment.session.minVoucherDelta,
         },
-        walletClient: parameters.walletClient,
       }),
     ],
     realm: new URL(parameters.environment.apiOrigin).host,

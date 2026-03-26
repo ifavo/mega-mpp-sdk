@@ -18,6 +18,10 @@
       "types": "./dist/client/index.d.ts",
       "default": "./dist/client/index.js"
     },
+    "./chains": {
+      "types": "./dist/chains.d.ts",
+      "default": "./dist/chains.js"
+    },
     "./server": {
       "types": "./dist/server/index.d.ts",
       "default": "./dist/server/index.js"

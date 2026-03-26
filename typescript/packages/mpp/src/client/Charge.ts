@@ -17,7 +17,10 @@ import {
 } from "../utils/permit2.js";
 import { submitTransaction } from "../utils/rpc.js";
 import { createDidPkhSource } from "../utils/source.js";
-import type { SubmissionMode } from "../utils/submissionMode.js";
+import {
+  parseSubmissionMode,
+  type SubmissionMode,
+} from "../utils/submissionMode.js";
 
 export function charge(
   parameters: charge.Parameters,
@@ -110,6 +113,10 @@ export function charge(
         });
       }
 
+      const resolvedSubmissionMode = requireSubmissionMode(
+        submissionMode,
+        "submissionMode for the client-broadcast charge flow",
+      );
       const publicClient = await resolvePublicClient(parameters, chainId);
       const calldata = encodePermit2Calldata({
         owner: signer.address,
@@ -123,7 +130,7 @@ export function charge(
         chainId,
         data: calldata,
         publicClient,
-        submissionMode,
+        submissionMode: resolvedSubmissionMode,
         to: permit2Address,
         walletClient,
       });
@@ -173,4 +180,13 @@ export declare namespace charge {
     onProgress?: ((progress: Progress) => void) | undefined;
     submissionMode?: SubmissionMode | undefined;
   };
+}
+
+function requireSubmissionMode(
+  submissionMode: SubmissionMode | undefined,
+  variableName: string,
+): SubmissionMode {
+  return parseSubmissionMode(submissionMode, {
+    variableName,
+  });
 }

@@ -1,7 +1,8 @@
 export { charge } from "./Charge.js";
 export { session } from "./Session.js";
 export { megaeth } from "./Methods.js";
-export { Mppx, Store } from "mppx/server";
+export { Mppx } from "./Mppx.js";
+export { Store } from "mppx/server";
 export {
   SessionStoreConfigurationError,
   SessionStoreStateError,

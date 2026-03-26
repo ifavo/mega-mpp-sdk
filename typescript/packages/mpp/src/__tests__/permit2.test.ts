@@ -16,6 +16,8 @@ import {
   decodePermit2Transaction,
   encodePermit2Calldata,
   getWitnessTypeString,
+  parseDecodedTransferArguments,
+  Permit2PayloadError,
   recoverPermitOwner,
   splitSummary,
 } from "../utils/permit2.js";
@@ -169,6 +171,58 @@ describe("permit2 utilities", () => {
       owner: payer.address,
       payload,
     });
+  });
+
+  it("rejects non-Permit2 calldata with a stable payload error", () => {
+    expect(() => decodePermit2Transaction("0xdeadbeef")).toThrowError(
+      Permit2PayloadError,
+    );
+    expect(() => decodePermit2Transaction("0xdeadbeef")).toThrowError(
+      /Permit2 witness transfer transaction/i,
+    );
+  });
+
+  it("rejects decoded Permit2 arguments that do not match either supported transfer shape", () => {
+    expect(() =>
+      parseDecodedTransferArguments([
+        {
+          deadline: 2n,
+          nonce: 1n,
+          permitted: {
+            amount: 1n,
+            token: "0x1111111111111111111111111111111111111111",
+          },
+        },
+        {
+          requestedAmount: "1",
+          to: "0x2222222222222222222222222222222222222222",
+        },
+        payer.address,
+        "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "ChargeWitness(TransferDetails transferDetails)",
+        "0x1234",
+      ]),
+    ).toThrowError(Permit2PayloadError);
+    expect(() =>
+      parseDecodedTransferArguments([
+        {
+          deadline: 2n,
+          nonce: 1n,
+          permitted: {
+            amount: 1n,
+            token: "0x1111111111111111111111111111111111111111",
+          },
+        },
+        {
+          requestedAmount: "1",
+          to: "0x2222222222222222222222222222222222222222",
+        },
+        payer.address,
+        "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "ChargeWitness(TransferDetails transferDetails)",
+        "0x1234",
+      ]),
+    ).toThrowError(/Permit2 witness transfer transaction/i);
   });
 
   it("builds the canonical Permit2 witness type string stub", () => {

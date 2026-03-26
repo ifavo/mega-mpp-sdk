@@ -4,12 +4,16 @@ import type { Address } from "viem";
 import { describe, expect, it } from "vitest";
 
 import { megaethTestnet } from "../constants.js";
+import { charge as clientCharge } from "../client/Charge.js";
 import { charge as serverCharge } from "../server/Charge.js";
 import {
   capturePaymentError,
   createChallenge,
   createHashCredential,
+  createLocalWalletClient,
   createStaticPublicClient,
+  deserializeChargeCredential,
+  payer,
   permit2Address,
   recipientAddress,
   tokenAddress,
@@ -92,6 +96,28 @@ describe("megaeth charge server errors", () => {
       /Permit2 credential instead of a hash credential/i,
     );
   });
+
+  it("requires an explicit submission mode for server-broadcast Permit2 settlement", async () => {
+    const challenge = createChallenge({
+      secretKey: "server-test-secret",
+    });
+    const clientMethod = clientCharge({
+      account: payer,
+      walletClient: createLocalWalletClient(),
+    });
+    const credential = deserializeChargeCredential(
+      await clientMethod.createCredential({ challenge }),
+    );
+
+    await expect(
+      createServerMethod(Store.memory()).verify({
+        credential,
+        request: challenge.request,
+      }),
+    ).rejects.toThrowError(
+      /Set submissionMode for the server-broadcast Permit2 flow to sync, realtime, or sendAndWait/i,
+    );
+  });
 });
 
 function createServerMethod(store: Store.Store) {
@@ -100,6 +126,5 @@ function createServerMethod(store: Store.Store) {
     publicClient: createStaticPublicClient(),
     recipient: recipientAddress as Address,
     store,
-    testnet: true,
   });
 }

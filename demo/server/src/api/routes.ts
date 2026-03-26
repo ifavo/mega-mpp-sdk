@@ -57,16 +57,15 @@ export async function handleChargeRequest(parameters: {
 
   const result = await runtime.mppx.megaeth.charge({
     amount: parameters.paidRequest.amount,
-    currency: parameters.environment.tokenAddress,
     description: parameters.paidRequest.description,
     externalId: parameters.paidRequest.externalId,
-    methodDetails: {
-      ...(runtime.feePayer ? { feePayer: true } : {}),
-      ...(parameters.paidRequest.splits?.length
-        ? { splits: parameters.paidRequest.splits }
-        : {}),
-    },
-    recipient: runtime.recipient,
+    ...(parameters.paidRequest.splits?.length
+      ? {
+          methodDetails: {
+            splits: parameters.paidRequest.splits,
+          },
+        }
+      : {}),
   })(parameters.request);
 
   if (result.status === 402) {
@@ -106,18 +105,8 @@ export async function handleSessionRequest(parameters: {
 
   const result = await runtimeSet.sessionMppx.megaeth.session({
     amount: environment.session.endpoint.amount,
-    currency: environment.tokenAddress,
     description: demoDescriptions.session,
     externalId: "demo-session",
-    recipient: environment.recipientAddress,
-    suggestedDeposit: environment.session.suggestedDeposit,
-    unitType: "request",
-    methodDetails: {
-      ...(environment.session.minVoucherDelta
-        ? { minVoucherDelta: environment.session.minVoucherDelta }
-        : {}),
-      escrowContract: environment.session.escrowContract!,
-    },
   })(request);
 
   if (result.status === 402) {

@@ -513,7 +513,6 @@ function createServerMethod(
     recipient: context.wallets.recipient.account.address,
     rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
     store: context.store,
-    testnet: true,
     walletClient: context.wallets.recipient,
     ...overrides,
   } as Parameters<typeof serverSession>[0]);

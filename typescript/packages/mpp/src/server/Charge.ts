@@ -13,7 +13,7 @@ import {
 } from "viem";
 
 import { ERC20_ABI } from "../abi.js";
-import { MEGAETH_TESTNET_CHAIN_ID, PERMIT2_ADDRESS } from "../constants.js";
+import { DEFAULT_USDM, PERMIT2_ADDRESS } from "../constants.js";
 import * as Methods from "../Methods.js";
 import {
   resolveAccount,
@@ -34,132 +34,148 @@ import {
 } from "../utils/permit2.js";
 import { submitTransaction } from "../utils/rpc.js";
 import { parseDidPkhSource } from "../utils/source.js";
-import type { SubmissionMode } from "../utils/submissionMode.js";
+import {
+  parseSubmissionMode,
+  type SubmissionMode,
+} from "../utils/submissionMode.js";
+import { attachMegaethServerMethodMetadata } from "./methodMetadata.js";
 
 export function charge(
-  parameters: charge.Parameters,
+  parameters: charge.Parameters = {},
 ): Method.Server<typeof Methods.charge> {
-  const { account, currency, recipient, store = Store.memory() } = parameters;
-
-  if (!recipient) {
-    throw badRequest(
-      "Provide a recipient address so the server can issue MegaETH payment challenges",
-    );
-  }
+  const normalizedParameters = parameters;
+  const { account, store = Store.memory() } = normalizedParameters;
+  const configuredCurrency = getAddress(
+    normalizedParameters.currency ?? DEFAULT_USDM.address,
+  );
+  const configuredRecipient = resolveConfiguredRecipient(normalizedParameters);
+  const configuredAccountAddress = resolveConfiguredAccountAddress(account);
 
   if (
-    account &&
-    typeof account !== "string" &&
-    getAddress(account.address) !== getAddress(recipient)
+    configuredAccountAddress &&
+    configuredRecipient &&
+    configuredAccountAddress !== configuredRecipient
   ) {
     throw badRequest(
       "Set recipient to the settlement wallet address before using direct Permit2 mode because PR 205 does not currently expose a separate spender field",
     );
   }
 
-  return Method.toServer(Methods.charge, {
-    defaults: {
-      methodDetails: {},
-    },
+  return attachMegaethServerMethodMetadata(
+    Method.toServer(Methods.charge, {
+      defaults: {
+        currency: configuredCurrency,
+        ...(configuredRecipient ? { recipient: configuredRecipient } : {}),
+        methodDetails: {},
+      },
 
-    async request({ credential, request }) {
-      if (credential) {
-        return credential.challenge.request as typeof request;
-      }
+      async request({ credential, request }) {
+        if (credential) {
+          return credential.challenge.request as typeof request;
+        }
 
-      const chainId = resolveRequestChainId({
-        chainId: request.methodDetails.chainId ?? parameters.chainId,
-        testnet: request.methodDetails.testnet ?? parameters.testnet,
-      });
-      const resolvedCurrency = resolveRequestAddress({
-        configured: currency,
-        label: "a currency address",
-        value: request.currency as Address | undefined,
-      });
-      const resolvedRecipient = resolveRequestAddress({
-        configured: recipient,
-        label: "a recipient address",
-        value: request.recipient as Address | undefined,
-      });
-
-      return {
-        ...request,
-        currency: resolvedCurrency,
-        recipient: resolvedRecipient,
-        methodDetails: {
-          ...request.methodDetails,
-          chainId,
-          ...(chainId === MEGAETH_TESTNET_CHAIN_ID ? { testnet: true } : {}),
-          ...(parameters.feePayer !== undefined
-            ? { feePayer: parameters.feePayer }
-            : {}),
-          permit2Address: (parameters.permit2Address ??
-            PERMIT2_ADDRESS) as Address,
-          ...(parameters.splits?.length ? { splits: parameters.splits } : {}),
-        },
-      };
-    },
-
-    async verify({ credential }) {
-      const challenge = credential.challenge.request;
-      const challengeId = credential.challenge.id;
-      const chainId = resolveCredentialChainId(challenge.methodDetails);
-      const publicClient = await resolvePublicClient(parameters, chainId);
-
-      if (
-        credential.challenge.expires &&
-        new Date(credential.challenge.expires) < new Date()
-      ) {
-        throw new Errors.PaymentExpiredError({
-          expires: credential.challenge.expires,
+        const chainId = resolveRequestChainId({
+          chainId:
+            request.methodDetails.chainId ?? normalizedParameters.chainId,
         });
-      }
+        const resolvedCurrency = resolveRequestAddress({
+          configured: configuredCurrency,
+          label: "a currency address",
+          value: request.currency as Address | undefined,
+        });
+        const resolvedRecipient = resolveRequestAddress({
+          configured: configuredRecipient,
+          label: "a recipient address",
+          value: request.recipient as Address | undefined,
+        });
 
-      try {
-        if (credential.payload.type === "hash") {
-          return await verifyHashCredential({
+        return {
+          ...request,
+          currency: resolvedCurrency,
+          recipient: resolvedRecipient,
+          methodDetails: {
+            ...request.methodDetails,
             chainId,
-            challenge,
-            challengeId,
-            hash: credential.payload.hash as `0x${string}`,
-            publicClient,
-            source: credential.source,
-            store,
+            ...(normalizedParameters.feePayer !== undefined
+              ? { feePayer: normalizedParameters.feePayer }
+              : {}),
+            permit2Address: (normalizedParameters.permit2Address ??
+              PERMIT2_ADDRESS) as Address,
+            ...(normalizedParameters.splits?.length
+              ? { splits: normalizedParameters.splits }
+              : {}),
+          },
+        };
+      },
+
+      async verify({ credential }) {
+        const challenge = credential.challenge.request;
+        const challengeId = credential.challenge.id;
+        const chainId = resolveCredentialChainId(challenge.methodDetails);
+        const publicClient = await resolvePublicClient(
+          normalizedParameters,
+          chainId,
+        );
+
+        if (
+          credential.challenge.expires &&
+          new Date(credential.challenge.expires) < new Date()
+        ) {
+          throw new Errors.PaymentExpiredError({
+            expires: credential.challenge.expires,
           });
         }
 
-        return await verifyPermitCredential({
-          account,
-          chainId,
-          challenge,
-          challengeId,
-          payload: credential.payload,
-          publicClient,
-          source: credential.source,
-          store,
-          submissionMode: parameters.submissionMode,
-          walletClientResolver: parameters,
-        });
-      } catch (error) {
-        if (error instanceof Errors.PaymentError) {
+        try {
+          if (credential.payload.type === "hash") {
+            return await verifyHashCredential({
+              chainId,
+              challenge,
+              challengeId,
+              hash: credential.payload.hash as `0x${string}`,
+              publicClient,
+              source: credential.source,
+              store,
+            });
+          }
+
+          return await verifyPermitCredential({
+            account,
+            chainId,
+            challenge,
+            challengeId,
+            payload: credential.payload,
+            publicClient,
+            source: credential.source,
+            store,
+            submissionMode: normalizedParameters.submissionMode,
+            walletClientResolver: normalizedParameters,
+          });
+        } catch (error) {
+          if (error instanceof Errors.PaymentError) {
+            throw error;
+          }
+
+          if (error instanceof Permit2PayloadError) {
+            throw invalidPayload(error.message);
+          }
+
+          if (
+            error instanceof Permit2ValidationError ||
+            error instanceof Permit2VerificationError
+          ) {
+            throw verificationFailed(error.message);
+          }
+
           throw error;
         }
-
-        if (error instanceof Permit2PayloadError) {
-          throw invalidPayload(error.message);
-        }
-
-        if (
-          error instanceof Permit2ValidationError ||
-          error instanceof Permit2VerificationError
-        ) {
-          throw verificationFailed(error.message);
-        }
-
-        throw error;
-      }
+      },
+    }),
+    {
+      intent: "charge",
+      parameters: normalizedParameters,
     },
-  });
+  );
 }
 
 async function verifyHashCredential(parameters: {
@@ -259,6 +275,10 @@ async function verifyPermitCredential(parameters: {
     walletClientResolver,
   } = parameters;
   await assertChallengeAvailable(store, challengeId);
+  const resolvedSubmissionMode = requireSubmissionMode(
+    submissionMode,
+    "submissionMode for the server-broadcast Permit2 flow",
+  );
 
   const walletClient = await resolveWalletClient(walletClientResolver, chainId);
   const settlementAccount = resolveAccount(walletClient, account);
@@ -305,7 +325,7 @@ async function verifyPermitCredential(parameters: {
     chainId,
     data: calldata,
     publicClient,
-    submissionMode,
+    submissionMode: resolvedSubmissionMode,
     to: permit2Address,
     walletClient,
   });
@@ -448,6 +468,23 @@ function toReason(error: unknown): string {
   return "Retry after correcting the MegaETH payment payload";
 }
 
+function resolveConfiguredAccountAddress(
+  account?: Account | Address | undefined,
+): Address | undefined {
+  if (!account) {
+    return undefined;
+  }
+
+  return getAddress(typeof account === "string" ? account : account.address);
+}
+
+function resolveConfiguredRecipient(parameters: {
+  account?: Account | Address | undefined;
+  recipient?: Address | undefined;
+}): Address | undefined {
+  return parameters.recipient ? getAddress(parameters.recipient) : undefined;
+}
+
 function resolveRequestAddress(parameters: {
   configured?: Address | undefined;
   label: string;
@@ -460,12 +497,11 @@ function resolveRequestAddress(parameters: {
     );
   }
 
-  return resolved;
+  return getAddress(resolved);
 }
 
 function resolveRequestChainId(parameters: {
   chainId?: number | undefined;
-  testnet?: boolean | undefined;
 }): number {
   try {
     return resolveChainId(parameters);
@@ -476,13 +512,21 @@ function resolveRequestChainId(parameters: {
 
 function resolveCredentialChainId(parameters: {
   chainId?: number | undefined;
-  testnet?: boolean | undefined;
 }): number {
   try {
     return resolveChainId(parameters);
   } catch (error) {
     throw invalidPayload(toReason(error));
   }
+}
+
+function requireSubmissionMode(
+  submissionMode: SubmissionMode | undefined,
+  variableName: string,
+): SubmissionMode {
+  return parseSubmissionMode(submissionMode, {
+    variableName,
+  });
 }
 
 export declare namespace charge {
@@ -492,10 +536,9 @@ export declare namespace charge {
     currency?: Address | undefined;
     feePayer?: boolean | undefined;
     permit2Address?: Address | undefined;
-    recipient: Address;
+    recipient?: Address | undefined;
     submissionMode?: SubmissionMode | undefined;
     splits?: Methods.ChargeSplit[] | undefined;
     store?: Store.Store | undefined;
-    testnet?: boolean | undefined;
   };
 }

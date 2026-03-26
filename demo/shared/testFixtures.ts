@@ -57,6 +57,7 @@ export function createDemoConfigFixture(
     apiOrigin: "http://localhost:3001",
     canSettle: true,
     chainId: 6343,
+    chainName: "MegaETH Testnet",
     feePayer: true,
     modes: {
       hash: createModeStatusFixture({
@@ -75,7 +76,6 @@ export function createDemoConfigFixture(
     session: createSessionConfigFixture(),
     submissionMode: "realtime",
     splitAmount: "50000",
-    testnet: true,
     tokenAddress: "0x1111111111111111111111111111111111111111",
     tokenDecimals: 6,
     tokenSymbol: "USDC",
@@ -88,8 +88,9 @@ export function createDemoBindingsFixture(
 ): DemoEnvironmentBindings {
   return {
     DEMO_PUBLIC_ORIGIN: "http://localhost:3001",
-    MEGAETH_TESTNET: "true",
-    MEGAETH_TOKEN_ADDRESS: "0x75139a9559c9cd1ad69b7e239c216151d2c81e6f",
+    MEGAETH_CHAIN_ID: "6343",
+    MEGAETH_PAYMENT_TOKEN_ADDRESS:
+      "0x75139a9559c9cd1ad69b7e239c216151d2c81e6f",
     ...overrides,
   };
 }

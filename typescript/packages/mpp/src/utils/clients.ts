@@ -40,36 +40,14 @@ export type WalletClientResolver = PublicClientResolver & {
 
 export function resolveChainId(parameters: {
   chainId?: number | undefined;
-  testnet?: boolean | undefined;
 }): number {
-  const { chainId, testnet } = parameters;
-  const derivedChainId =
-    testnet === undefined
-      ? undefined
-      : testnet
-        ? MEGAETH_TESTNET_CHAIN_ID
-        : MEGAETH_MAINNET_CHAIN_ID;
-
-  if (chainId !== undefined && derivedChainId !== undefined) {
-    if (chainId !== derivedChainId) {
-      throw new Error(
-        `Use chainId "${derivedChainId}" when testnet is set to "${String(testnet)}".`,
-      );
-    }
-    return chainId;
+  if (parameters.chainId === undefined) {
+    throw new Error(
+      "Provide chainId before retrying so the SDK uses the intended MegaETH network, RPC, and contract addresses.",
+    );
   }
 
-  if (chainId !== undefined) {
-    return chainId;
-  }
-
-  if (derivedChainId !== undefined) {
-    return derivedChainId;
-  }
-
-  throw new Error(
-    "Provide chainId or testnet so the SDK can resolve the MegaETH network explicitly.",
-  );
+  return parameters.chainId;
 }
 
 export function resolveChain(chainId: number): Chain {

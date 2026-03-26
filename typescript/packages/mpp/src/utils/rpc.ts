@@ -34,7 +34,7 @@ type SubmitParameters = {
   chainId: number;
   data: Hex;
   publicClient: PublicClient;
-  submissionMode?: SubmissionMode | undefined;
+  submissionMode: SubmissionMode;
   to: Address;
   walletClient: WalletClient;
 };
@@ -47,7 +47,7 @@ export async function submitTransaction(
     chainId,
     data,
     publicClient,
-    submissionMode = "auto",
+    submissionMode,
     to,
     walletClient,
   } = parameters;
@@ -59,67 +59,51 @@ export async function submitTransaction(
     to,
   });
 
-  try {
-    const signedTransaction = await signTransaction(walletClient, prepared);
-    return await sendSignedTransaction(
+  if (submissionMode === "sendAndWait") {
+    return await sendAndWaitWithExplicitMode({
+      account,
+      chainId,
+      data,
+      prepared,
       publicClient,
-      signedTransaction,
-      submissionMode,
-    );
-  } catch (error) {
-    if (!isUnsupportedMethodError(error)) {
-      throw error;
-    }
+      to,
+      walletClient,
+    });
   }
 
-  const hash = await sendTransaction(walletClient, {
-    account,
-    chain: resolveChain(chainId),
-    data,
-    to,
+  const signedTransaction = await signRawTransactionForMegaethMode({
+    prepared,
+    submissionMode,
+    walletClient,
   });
-  return await waitForTransactionReceipt(publicClient, { hash });
+  return await sendSignedTransaction(
+    publicClient,
+    signedTransaction,
+    submissionMode,
+  );
 }
 
 export async function sendSignedTransaction(
   publicClient: PublicClient,
   signedTransaction: Hex,
-  submissionMode: SubmissionMode = "auto",
+  submissionMode: SubmissionMode,
 ): Promise<TransactionReceipt> {
-  if (submissionMode === "sync") {
-    return await submitWithRpcMethod(
-      publicClient,
-      signedTransaction,
-      "eth_sendRawTransactionSync",
-    );
+  switch (submissionMode) {
+    case "sync":
+      return await submitWithRpcMethod(
+        publicClient,
+        signedTransaction,
+        "eth_sendRawTransactionSync",
+      );
+    case "realtime":
+      return await submitWithRpcMethod(
+        publicClient,
+        signedTransaction,
+        "realtime_sendRawTransaction",
+      );
+    case "sendAndWait":
+      return await sendRawTransactionAndWait(publicClient, signedTransaction);
   }
-
-  if (submissionMode === "realtime") {
-    return await submitWithRpcMethod(
-      publicClient,
-      signedTransaction,
-      "realtime_sendRawTransaction",
-    );
-  }
-
-  if (submissionMode === "sendAndWait") {
-    return await sendRawTransactionAndWait(publicClient, signedTransaction);
-  }
-
-  for (const method of [
-    "eth_sendRawTransactionSync",
-    "realtime_sendRawTransaction",
-  ] as const) {
-    try {
-      return await submitWithRpcMethod(publicClient, signedTransaction, method);
-    } catch (error) {
-      if (!isUnsupportedMethodError(error)) {
-        throw error;
-      }
-    }
-  }
-
-  return await sendRawTransactionAndWait(publicClient, signedTransaction);
 }
 
 async function normalizeSubmissionResult(
@@ -261,8 +245,69 @@ async function submitWithRpcMethod(
       });
     }
 
+    if (isUnsupportedMethodError(error)) {
+      throw new Error(
+        method === "eth_sendRawTransactionSync"
+          ? "Set submissionMode to realtime or sendAndWait before retrying because the current RPC does not support eth_sendRawTransactionSync."
+          : "Set submissionMode to sync or sendAndWait before retrying because the current RPC does not support realtime_sendRawTransaction.",
+        { cause: error },
+      );
+    }
+
     throw error;
   }
+}
+
+async function signRawTransactionForMegaethMode(parameters: {
+  prepared: Awaited<ReturnType<typeof prepareTransactionRequest>>;
+  submissionMode: "realtime" | "sync";
+  walletClient: WalletClient;
+}): Promise<Hex> {
+  try {
+    return await signTransaction(parameters.walletClient, parameters.prepared);
+  } catch (error) {
+    if (isUnsupportedMethodError(error)) {
+      throw new Error(
+        `Set submissionMode to sendAndWait before retrying because the current wallet does not support raw transaction signing required for ${parameters.submissionMode} submission.`,
+        { cause: error },
+      );
+    }
+
+    throw error;
+  }
+}
+
+async function sendAndWaitWithExplicitMode(parameters: {
+  account: Account;
+  chainId: number;
+  data: Hex;
+  prepared: Awaited<ReturnType<typeof prepareTransactionRequest>>;
+  publicClient: PublicClient;
+  to: Address;
+  walletClient: WalletClient;
+}): Promise<TransactionReceipt> {
+  try {
+    const signedTransaction = await signTransaction(
+      parameters.walletClient,
+      parameters.prepared,
+    );
+    return await sendRawTransactionAndWait(
+      parameters.publicClient,
+      signedTransaction,
+    );
+  } catch (error) {
+    if (!isUnsupportedMethodError(error)) {
+      throw error;
+    }
+  }
+
+  const hash = await sendTransaction(parameters.walletClient, {
+    account: parameters.account,
+    chain: resolveChain(parameters.chainId),
+    data: parameters.data,
+    to: parameters.to,
+  });
+  return await waitForTransactionReceipt(parameters.publicClient, { hash });
 }
 
 async function sendRawTransactionAndWait(

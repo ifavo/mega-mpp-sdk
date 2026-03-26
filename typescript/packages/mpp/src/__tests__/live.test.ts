@@ -53,12 +53,15 @@ type SessionCredential = Credential.Credential<
 >;
 
 const shouldRunLive = process.env.RUN_MEGAETH_LIVE === "true";
-const testnet = process.env.MEGAETH_TESTNET !== "false";
-const chain = testnet ? megaethTestnet : megaeth;
+const configuredChainId = Number(
+  process.env.MEGAETH_CHAIN_ID ?? String(megaeth.id),
+);
+const chain =
+  configuredChainId === megaethTestnet.id ? megaethTestnet : megaeth;
 const rpcUrl = process.env.MEGAETH_RPC_URL ?? chain.rpcUrls.default.http[0]!;
 const permit2Address = (process.env.MEGAETH_PERMIT2_ADDRESS ??
   PERMIT2_ADDRESS) as Address;
-const tokenAddress = (process.env.MEGAETH_TOKEN_ADDRESS ??
+const tokenAddress = (process.env.MEGAETH_PAYMENT_TOKEN_ADDRESS ??
   DEFAULT_USDM.address) as Address;
 const publicClient = createPublicClient({
   chain,
@@ -91,7 +94,7 @@ const fundedSessionConfigured = Boolean(
 const submissionMode = parseSubmissionMode(
   process.env.MEGAETH_SUBMISSION_MODE,
   {
-    defaultMode: "auto",
+    defaultMode: "realtime",
     variableName: "MEGAETH_SUBMISSION_MODE",
   },
 );
@@ -108,7 +111,7 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
       expect(blockNumber >= 0n).toBe(true);
     });
 
-    it("verifies that Permit2 and the configured token are deployed", async () => {
+    it("verifies that Permit2 and the configured payment token are deployed", async () => {
       const [permit2Code, tokenCode] = await Promise.all([
         publicClient.getBytecode({ address: permit2Address }),
         publicClient.getBytecode({ address: tokenAddress }),
@@ -118,7 +121,7 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
       expect(hasBytecode(tokenCode)).toBe(true);
     });
 
-    it("reads balance and allowance from the configured token contract", async () => {
+    it("reads balance and allowance from the configured payment token contract", async () => {
       const [balance, allowance] = await Promise.all([
         readContract(publicClient, {
           abi: ERC20_ABI,
@@ -139,7 +142,7 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
     });
 
     it("accepts an explicit live submission mode configuration", () => {
-      expect(submissionMode).toMatch(/^(auto|sync|realtime|sendAndWait)$/);
+      expect(submissionMode).toMatch(/^(sync|realtime|sendAndWait)$/);
     });
   });
 
@@ -211,7 +214,6 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
         publicClient,
         recipient: fundedRecipient,
         store,
-        testnet,
       });
       const amount = BigInt(fundedAmount);
       const beforeBalance = await readContract(publicClient, {
@@ -228,7 +230,6 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
           currency: tokenAddress,
           methodDetails: {
             chainId: chain.id,
-            ...(testnet ? { testnet: true } : {}),
             permit2Address,
           },
           recipient: fundedRecipient,
@@ -331,7 +332,6 @@ describe.skipIf(!shouldRunLive)("megaeth live smoke tests", () => {
           },
         },
         store,
-        testnet,
         unitType: "request",
         walletClient: serverWallet,
       });

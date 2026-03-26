@@ -30,6 +30,7 @@ export type DemoConfig = {
   apiOrigin: string;
   canSettle: boolean;
   chainId: number;
+  chainName: string;
   feePayer: boolean;
   modes: Record<DemoMode, ModeStatus>;
   session: DemoSessionConfig;
@@ -39,7 +40,6 @@ export type DemoConfig = {
   submissionMode: DemoSubmissionMode;
   splitAmount: string;
   splitRecipient?: DemoAddress | undefined;
-  testnet: boolean;
   tokenAddress: DemoAddress;
   tokenDecimals: number;
   tokenSymbol: string;

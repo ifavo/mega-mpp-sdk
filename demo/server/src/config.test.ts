@@ -21,14 +21,31 @@ describe("demo server config", () => {
 
     expect(modes.permit2.ready).toBe(false);
     expect(modes.hash.ready).toBe(false);
-    expect(modes.permit2.blockers[0]).toMatch(/MEGAETH_SETTLEMENT_PRIVATE_KEY/);
+    expect(
+      modes.permit2.blockers.some((blocker) =>
+        /MEGAETH_SETTLEMENT_PRIVATE_KEY/.test(blocker),
+      ),
+    ).toBe(true);
+    expect(
+      modes.permit2.blockers.some((blocker) =>
+        /MEGAETH_RECIPIENT_ADDRESS/.test(blocker),
+      ),
+    ).toBe(true);
     expect(modes.hash.blockers[0]).toMatch(/MEGAETH_RECIPIENT_ADDRESS/);
+  });
+
+  it("requires MEGAETH_CHAIN_ID before booting the Node demo runtime", () => {
+    expect(() =>
+      loadNodeDemoEnvironment({
+        MEGAETH_CHAIN_ID: undefined,
+      }),
+    ).toThrow(/MEGAETH_CHAIN_ID/);
   });
 
   it("loadNodeDemoEnvironment resolves known testnet token metadata without booting the server", () => {
     const runtime = loadNodeDemoEnvironment(
       createDemoBindingsFixture({
-        MEGAETH_TOKEN_ADDRESS: TESTNET_USDC.address,
+        MEGAETH_PAYMENT_TOKEN_ADDRESS: TESTNET_USDC.address,
         PORT: "3001",
       }),
     );
@@ -49,20 +66,23 @@ describe("demo server config", () => {
     expect(runtime.environment.submissionMode).toBe("sendAndWait");
   });
 
-  it("loadNodeDemoEnvironment rejects invalid submission modes with an instructive error", () => {
-    expect(() =>
-      loadNodeDemoEnvironment(
-        createDemoBindingsFixture({
-          MEGAETH_SUBMISSION_MODE: "fast",
-        }),
-      ),
-    ).toThrow(/MEGAETH_SUBMISSION_MODE/);
-  });
+  it.each(["auto", "fast"])(
+    "loadNodeDemoEnvironment rejects %s as an invalid submission mode",
+    (value) => {
+      expect(() =>
+        loadNodeDemoEnvironment(
+          createDemoBindingsFixture({
+            MEGAETH_SUBMISSION_MODE: value,
+          }),
+        ),
+      ).toThrow(/MEGAETH_SUBMISSION_MODE/);
+    },
+  );
 
   it("loadWorkerDemoEnvironment derives the API origin from the request URL", () => {
     const environment = loadWorkerDemoEnvironment(
       createDemoBindingsFixture({
-        MEGAETH_TOKEN_ADDRESS: TESTNET_USDC.address,
+        MEGAETH_PAYMENT_TOKEN_ADDRESS: TESTNET_USDC.address,
       }),
       new Request("https://demo.example/api/v1/health"),
     );

@@ -11,9 +11,7 @@ export function OverviewPanel(properties: {
   return (
     <section className="overview-panel">
       <div className="overview-copy">
-        <p className="eyebrow">
-          {properties.config.testnet ? "MegaETH testnet" : "MegaETH mainnet"}
-        </p>
+        <p className="eyebrow">{properties.config.chainName}</p>
         <h2>Run charge and session flows against the MegaETH server.</h2>
         <p className="lede">
           Connect a wallet, choose a flow, inspect the receipt, and review the
@@ -27,13 +25,13 @@ export function OverviewPanel(properties: {
         />
         <Fact
           label="Chain"
-          value={`${properties.config.chainId}${properties.config.testnet ? " testnet" : ""}`}
+          value={`${properties.config.chainId} · ${properties.config.chainName}`}
         />
         <Fact
           label="Submission"
           value={formatSubmissionModeLabel(properties.config.submissionMode)}
         />
-        <Fact label="Token" value={properties.config.tokenSymbol} />
+        <Fact label="Payment Token" value={properties.config.tokenSymbol} />
         <Fact label="Status" value={properties.selectedStatus} />
       </div>
     </section>

@@ -10,19 +10,8 @@ import {
 import { createLocalWalletClient, payer } from "./fixtures/chargeTestkit.js";
 
 describe("client configuration", () => {
-  it("requires an explicit chain selection", () => {
-    expect(() => resolveChainId({})).toThrowError(
-      /Provide chainId or testnet/i,
-    );
-  });
-
-  it("rejects conflicting chainId and testnet values", () => {
-    expect(() =>
-      resolveChainId({
-        chainId: megaeth.id,
-        testnet: true,
-      }),
-    ).toThrowError(/Use chainId "6343" when testnet is set to "true"/i);
+  it("requires chainId when it is omitted", () => {
+    expect(() => resolveChainId({})).toThrowError(/Provide chainId/i);
   });
 
   it("rejects a public client configured for a different chain", async () => {

@@ -43,7 +43,7 @@ export async function connectWalletForDemoChain(
       params: [
         {
           chainId: numberToHex(config.chainId),
-          chainName: config.testnet ? "MegaETH Testnet" : "MegaETH",
+          chainName: config.chainName,
           nativeCurrency: {
             decimals: 18,
             name: "Ether",
@@ -65,7 +65,7 @@ export async function connectWalletForDemoChain(
 export function createDemoChain(config: DemoConfig) {
   return defineChain({
     id: config.chainId,
-    name: config.testnet ? "MegaETH Testnet" : "MegaETH",
+    name: config.chainName,
     nativeCurrency: {
       decimals: 18,
       name: "Ether",

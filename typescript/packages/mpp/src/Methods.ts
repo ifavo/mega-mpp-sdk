@@ -99,7 +99,6 @@ export const charge = Method.from({
       recipient: z.address(),
       methodDetails: z.object({
         chainId: z.optional(z.number()),
-        testnet: z.optional(z.boolean()),
         feePayer: z.optional(z.boolean()),
         permit2Address: z.optional(z.address()),
         splits: z.optional(z.array(splitSchema)),

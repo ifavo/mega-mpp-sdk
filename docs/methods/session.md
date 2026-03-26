@@ -1,5 +1,64 @@
 # MegaETH Session
 
+Use `session` when many protected requests should share one funded escrow channel.
+
+This is the best fit when you want:
+
+- a reusable payment channel for repeated access
+- voucher-based request authorization after the first on-chain open
+- periodic server settlement instead of one on-chain payment per request
+
+For the end-to-end walkthrough, start with [../getting-started.md](../getting-started.md).
+
+## Server Shape
+
+`session` can inherit the explicit create-level MegaETH values you already chose
+for `account`, `chainId`, `currency`, and `recipient`, but it still requires
+explicit session policy:
+
+```ts
+import { Mppx, Store, megaeth } from "mega-mpp-sdk/server";
+import { megaethTestnet } from "mega-mpp-sdk/chains";
+import { privateKeyToAccount } from "viem/accounts";
+
+const settlementAccount = privateKeyToAccount(
+  process.env.MEGAETH_SETTLEMENT_PRIVATE_KEY!,
+);
+const recipient = settlementAccount.address;
+
+const mppx = Mppx.create({
+  account: settlementAccount,
+  chainId: megaethTestnet.id,
+  currency: process.env.MEGAETH_PAYMENT_TOKEN_ADDRESS!,
+  methods: [
+    megaeth.session({
+      escrowContract: process.env.MEGAETH_SESSION_ESCROW_ADDRESS!,
+      settlement: {
+        close: { enabled: true },
+        periodic: {
+          intervalSeconds: 3600,
+          minUnsettledAmount: "200000",
+        },
+      },
+      store: Store.memory(),
+      suggestedDeposit: "500000",
+      unitType: "request",
+    }),
+  ],
+  recipient,
+  secretKey: process.env.MPP_SECRET_KEY!,
+});
+```
+
+With that method registered, the route handler can issue the next session challenge with the request price:
+
+```ts
+const result = await mppx.megaeth.session({
+  amount: "100000",
+  description: "Reusable session resource",
+})(request);
+```
+
 ## Model
 
 `session` uses an escrow-backed Tempo-style voucher channel:
@@ -14,7 +73,7 @@ The serialized `Payment-Receipt` header stays `mppx`-compatible in v1. Richer ch
 
 ```ts
 type SessionRequest = {
-  amount: string // price per unit in base units
+  amount: string
   currency: `0x${string}`
   recipient: `0x${string}`
   description?: string
@@ -23,13 +82,15 @@ type SessionRequest = {
   unitType?: string
   methodDetails: {
     chainId?: number
-    testnet?: boolean
-    escrowContract?: `0x${string}`
+    escrowContract: `0x${string}`
     channelId?: `0x${string}`
     minVoucherDelta?: string
   }
 }
 ```
+
+`methodDetails.chainId` is the only public network selector. Provide it
+explicitly through create-level configuration or on each request.
 
 ## Credential Actions
 
@@ -64,11 +125,6 @@ The client session factory supports the same protected route across the full lif
 - `context.action = "topUp"` with `authorizeCurrentRequest: false` performs a pure management top-up
 - `context.action = "close"` signs the final cooperative close voucher
 
-Breaking cleanup in `0.2.0`:
-
-- `managementOnly` was removed from the public session context
-- use `authorizeCurrentRequest: false` instead when a top-up should not authorize the current request
-
 Progress events:
 
 - `challenge`
@@ -97,7 +153,7 @@ The server verifies and persists:
 - last settlement time
 - channel status
 
-The default `session({ store })` path treats channel persistence as single-process. For multi-instance runtimes, pass `channelStore` with cross-instance atomic update semantics instead of relying on the built-in JSON-store helper.
+The default `session({ store })` path is single-process. For multi-instance runtimes, pass `channelStore` with cross-instance atomic update semantics instead of relying on the built-in JSON-store helper.
 
 Inline periodic settlement runs after voucher acceptance when either threshold is met:
 
@@ -106,7 +162,7 @@ Inline periodic settlement runs after voucher acceptance when either threshold i
 
 ## Escrow Contract
 
-The repository ships an upgradeable `MegaMppSessionEscrow` contract in [contracts/src/MegaMppSessionEscrow.sol](/Users/m/workspace/mega-mpp-sdk/contracts/src/MegaMppSessionEscrow.sol).
+The repository ships an upgradeable `MegaMppSessionEscrow` contract in [contracts/src/MegaMppSessionEscrow.sol](../../contracts/src/MegaMppSessionEscrow.sol).
 
 Supported contract surface:
 
@@ -136,29 +192,7 @@ forge script script/DeployMegaMppSessionEscrow.s.sol:DeployMegaMppSessionEscrowS
   --broadcast
 ```
 
-On MegaETH, include `--skip-simulation` when you deploy with Foundry. The deployment flow should target the live broadcast path directly.
-
-Verification helper:
-
-```bash
-export SESSION_ESCROW_IMPLEMENTATION='0x...'
-export SESSION_ESCROW_PROXY='0x...'
-export SESSION_ESCROW_OWNER='0x...'
-export SESSION_ESCROW_CLOSE_DELAY=86400
-export SESSION_ESCROW_VERIFIER_URL='https://your-blockscout-or-etherscan-api'
-
-pnpm contracts:verify
-```
-
-Deployment and operations checklist:
-
-- use the proxy address in `MEGAETH_SESSION_ESCROW_ADDRESS`, never the implementation address
-- `SESSION_ESCROW_OWNER` controls upgrades through UUPS, so production deployments should use a multisig or dedicated admin account
-- `SESSION_ESCROW_CLOSE_DELAY` defines the forced-close withdrawal window after `requestClose`
-- only the configured payee can call `settle` and `close`, so keep the server settlement wallet aligned with the payee you intend to use
-- session deposits require a direct ERC-20 approval to the escrow contract; Permit2 approval does not apply here
-- avoid fee-on-transfer or rebasing tokens because the escrow accounting assumes exact transfer amounts
-- redeploying the escrow changes the channel namespace because `computeChannelId` includes both `block.chainid` and the escrow contract address
+On MegaETH, include `--skip-simulation` when you deploy with Foundry. The deployment path should target live broadcast directly.
 
 ## Funding Constraints
 

@@ -12,7 +12,7 @@ describe("demo server API", () => {
       environment: createDemoEnvironment({
         apiOrigin: "https://demo.example",
         bindings: createDemoBindingsFixture({
-          MEGAETH_TOKEN_ADDRESS: TESTNET_USDC.address,
+          MEGAETH_PAYMENT_TOKEN_ADDRESS: TESTNET_USDC.address,
         }),
       }),
     });
@@ -48,6 +48,7 @@ describe("demo server API", () => {
     const api = createDemoApi({
       environment: createDemoEnvironment({
         apiOrigin: "https://demo.example",
+        bindings: createDemoBindingsFixture(),
       }),
     });
 

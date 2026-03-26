@@ -533,6 +533,7 @@ function createIntegrationClientMethod(
   return clientCharge({
     account: context.wallets.payer.account,
     rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
+    submissionMode: "sendAndWait",
     walletClient: context.wallets.payer,
     ...overrides,
   });
@@ -549,8 +550,8 @@ function createIntegrationServerMethod(
     permit2Address: context.permit2Address,
     recipient: context.wallets.recipient.account.address,
     rpcUrls: { [megaethTestnet.id]: context.rpcUrl },
+    submissionMode: "sendAndWait",
     store: context.store,
-    testnet: true,
     walletClient: context.wallets.recipient,
     ...overrides,
   });
