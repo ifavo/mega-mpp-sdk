@@ -7,11 +7,13 @@ import type {
   DemoSessionState,
   ModeStatus,
 } from "../types.js";
+import type { Permit2ApprovalState } from "../usePermit2Approval.js";
 import {
   getBlockedModeCopy,
   getPrimaryActionLabel,
   getReadyModeCopy,
 } from "./helpers.js";
+import { Permit2ApprovalCard } from "./permit2ApprovalCard.js";
 import { Panel, ToggleButton, shortHex } from "./shared.js";
 
 export function FlowPanel(properties: {
@@ -23,9 +25,13 @@ export function FlowPanel(properties: {
   endpointKind: DemoEndpointKind;
   onChargeModeChange: (mode: DemoMode) => void;
   onConnectWallet: () => void;
+  onEnablePermit2: () => void;
   onEndpointChange: (endpointId: string) => void;
   onKindChange: (kind: DemoEndpointKind) => void;
   onRunFlow: () => void;
+  permit2ApprovalError: string | null;
+  permit2ApprovalPending: boolean;
+  permit2ApprovalState: Permit2ApprovalState;
   onSessionClose: () => void;
   onSessionTopUp: () => void;
   selectedEndpoint: DemoEndpoint | null;
@@ -128,6 +134,17 @@ export function FlowPanel(properties: {
           </p>
         </div>
       )}
+      {properties.endpointKind === "charge" ? (
+        <Permit2ApprovalCard
+          account={properties.account}
+          approvalError={properties.permit2ApprovalError}
+          approvalPending={properties.permit2ApprovalPending}
+          approvalState={properties.permit2ApprovalState}
+          config={properties.config}
+          onEnable={properties.onEnablePermit2}
+          selectedEndpoint={properties.selectedEndpoint}
+        />
+      ) : null}
       <button
         className="button button-primary"
         disabled={
@@ -135,7 +152,10 @@ export function FlowPanel(properties: {
           !properties.selectedEndpoint ||
           properties.isPending ||
           (properties.endpointKind === "charge"
-            ? !properties.selectedMode.ready
+            ? !properties.selectedMode.ready ||
+              properties.permit2ApprovalPending ||
+              properties.permit2ApprovalState.type === "checking" ||
+              properties.permit2ApprovalState.type === "required"
             : !properties.sessionReady)
         }
         onClick={properties.onRunFlow}

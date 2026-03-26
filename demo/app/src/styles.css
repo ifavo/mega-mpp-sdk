@@ -332,6 +332,46 @@ pre {
   line-height: 1.55;
 }
 
+.permit2-callout {
+  margin-bottom: 1rem;
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.permit2-callout-required {
+  border-color: rgba(249, 115, 22, 0.18);
+  background: var(--accent-soft);
+}
+
+.permit2-callout-error {
+  border-color: rgba(141, 30, 18, 0.16);
+  background: #fff2ee;
+}
+
+.permit2-callout-subtle {
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.permit2-meta,
+.permit2-error {
+  margin-top: 0.55rem;
+  font-size: 0.86rem;
+}
+
+.permit2-meta {
+  color: var(--muted);
+}
+
+.permit2-error {
+  color: #8d1e12;
+}
+
+.permit2-action {
+  margin-top: 0.85rem;
+  margin-bottom: 0;
+}
+
 .note-group + .note-group {
   margin-top: 1.25rem;
 }

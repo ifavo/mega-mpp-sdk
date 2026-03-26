@@ -9,6 +9,7 @@ import type {
   DemoSessionState,
   SessionProgress,
 } from "../types.js";
+import { usePermit2Approval } from "../usePermit2Approval.js";
 import { usePaidResourceRequest } from "../usePaidResource.js";
 import { useSessionResourceRequest } from "../useSessionResource.js";
 import { connectWalletForDemoChain } from "../wallet.js";
@@ -67,16 +68,27 @@ export function PlaygroundView() {
     }
   }, [configQuery.data, endpointId, endpointKind]);
 
+  const config = configQuery.data ?? null;
+  const health = healthQuery.data ?? null;
+  const availableEndpoints =
+    config?.endpoints.filter((item) => item.kind === endpointKind) ?? [];
+  const selectedEndpoint =
+    availableEndpoints.find((item) => item.id === endpointId) ?? null;
+  const requiredChargeAmount =
+    endpointKind === "charge" && selectedEndpoint !== null
+      ? BigInt(selectedEndpoint.amount)
+      : null;
+  const permit2Approval = usePermit2Approval({
+    account,
+    config,
+    requiredAmount: requiredChargeAmount,
+  });
+
   if (configQuery.isLoading || healthQuery.isLoading) {
     return <Shell title={PLAYGROUND_TITLE} subtitle="Loading configuration" />;
   }
 
-  if (
-    configQuery.isError ||
-    !configQuery.data ||
-    healthQuery.isError ||
-    !healthQuery.data
-  ) {
+  if (configQuery.isError || config === null || healthQuery.isError || health === null) {
     return (
       <Shell
         title={PLAYGROUND_TITLE}
@@ -85,13 +97,6 @@ export function PlaygroundView() {
     );
   }
 
-  const config = configQuery.data;
-  const health = healthQuery.data;
-  const availableEndpoints = config.endpoints.filter(
-    (item) => item.kind === endpointKind,
-  );
-  const selectedEndpoint =
-    availableEndpoints.find((item) => item.id === endpointId) ?? null;
   const selectedMode = config.modes[credentialMode];
   const selectedStatus = getSelectedStatus({
     config,
@@ -146,6 +151,9 @@ export function PlaygroundView() {
                   setSessionProgress,
                 });
               });
+          }}
+          onEnablePermit2={() => {
+            permit2Approval.approvalMutation.mutate();
           }}
           onEndpointChange={setEndpointId}
           onKindChange={setEndpointKind}
@@ -204,6 +212,9 @@ export function PlaygroundView() {
               method: "HEAD",
             });
           }}
+          permit2ApprovalError={permit2Approval.approvalError}
+          permit2ApprovalPending={permit2Approval.approvalMutation.isPending}
+          permit2ApprovalState={permit2Approval.approvalState}
           selectedEndpoint={selectedEndpoint}
           selectedMode={selectedMode}
           sessionActionsDisabled={sessionActionsDisabled}

@@ -22,6 +22,10 @@ export function EnvironmentPanel(properties: {
           <div className="facts-stack">
             <Fact label="Token Address" value={shortHex(properties.config.tokenAddress)} />
             <Fact
+              label="Permit2"
+              value={shortHex(properties.config.permit2Address)}
+            />
+            <Fact
               label="Recipient"
               value={
                 properties.selectedMode.recipient

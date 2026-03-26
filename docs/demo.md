@@ -78,6 +78,7 @@ The UI runs at `http://localhost:5173`.
 - `mode=permit2` uses the server-broadcast charge runtime.
 - `mode=hash` uses the client-broadcast verification runtime.
 - Split payments are driven per request through `methodDetails.splits`.
+- The browser charge UI checks the connected wallet's Permit2 allowance and can prompt for a one-time infinite approval when the current token allowance is missing or finite.
 
 ### Session
 
@@ -151,7 +152,7 @@ In that state:
 ## Manual Verification Checklist
 
 1. Fund the server wallet with testnet ETH and the client wallet with testnet ETH plus testnet USDC.
-2. Approve Permit2 once for charge and approve the escrow contract once for session.
+2. Approve Permit2 once for charge and approve the escrow contract once for session. The charge UI can trigger the Permit2 infinite approval step when the connected wallet still needs it.
 3. Start `pnpm demo:server` and `pnpm demo:app` after exporting the funded Carrot environment above.
 4. Confirm `/api/v1/health` reports charge readiness and session blockers or readiness accurately.
 5. Connect the client wallet in the browser and run the charge endpoint once.

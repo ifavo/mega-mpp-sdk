@@ -51,6 +51,11 @@ export MEGAETH_FEE_PAYER=true
 For the demo's server-broadcast Permit2 flow and session flow, keep
 `MEGAETH_RECIPIENT_ADDRESS` equal to the settlement wallet address.
 
+When you connect a wallet on the charge screen, the browser now checks the
+current Permit2 allowance for the configured payment token. If the allowance
+is missing or finite, the UI offers a one-time infinite approval transaction so
+repeat charge runs do not keep asking for another token approval.
+
 ## Cloudflare Worker
 
 Build the frontend, then run the Worker locally:
