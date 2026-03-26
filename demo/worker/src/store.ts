@@ -7,21 +7,38 @@ type DurableStoreOperation =
     }
   | {
       key: string;
+      operation: "lock";
+    }
+  | {
+      key: string;
       operation: "put";
       value: string;
+    }
+  | {
+      key: string;
+      operation: "unlock";
+      token: string;
     };
 
-type DurableStoreResponse = {
-  value: string | null;
-};
+type DurableStoreResponse =
+  | {
+      value: string | null;
+    }
+  | {
+      token: string;
+    };
 
 type StoreLike = {
+  acquireLock: (key: string) => Promise<() => Promise<void>>;
   delete: <key extends string>(key: key) => Promise<void>;
   get: <key extends string>(key: key) => Promise<unknown | null>;
   put: <key extends string>(key: key, value: unknown) => Promise<void>;
 };
 
 export class DemoStoreDurableObject implements DurableObject {
+  readonly heldLocks = new Map<string, string>();
+  readonly waitQueues = new Map<string, Array<() => void>>();
+
   constructor(readonly ctx: DurableObjectState) {}
 
   async fetch(request: Request): Promise<Response> {
@@ -34,8 +51,18 @@ export class DemoStoreDurableObject implements DurableObject {
           value: value ?? null,
         } satisfies DurableStoreResponse);
       }
+      case "lock": {
+        const token = crypto.randomUUID();
+        await this.acquireLock(operation.key, token);
+        return Response.json({
+          token,
+        } satisfies DurableStoreResponse);
+      }
       case "put":
         await this.ctx.storage.put(operation.key, operation.value);
+        return new Response(null, { status: 204 });
+      case "unlock":
+        this.releaseLock(operation.key, operation.token);
         return new Response(null, { status: 204 });
       case "delete":
         await this.ctx.storage.delete(operation.key);
@@ -52,6 +79,36 @@ export class DemoStoreDurableObject implements DurableObject {
         );
     }
   }
+
+  private async acquireLock(key: string, token: string): Promise<void> {
+    while (this.heldLocks.has(key)) {
+      await new Promise<void>((resolve) => {
+        const queue = this.waitQueues.get(key) ?? [];
+        queue.push(resolve);
+        this.waitQueues.set(key, queue);
+      });
+    }
+
+    this.heldLocks.set(key, token);
+  }
+
+  private releaseLock(key: string, token: string): void {
+    if (this.heldLocks.get(key) !== token) {
+      throw new Error(
+        "Release the matching Durable Object lock token before retrying the Cloudflare demo request.",
+      );
+    }
+
+    this.heldLocks.delete(key);
+    const queue = this.waitQueues.get(key);
+    const next = queue?.shift();
+
+    if (!queue?.length) {
+      this.waitQueues.delete(key);
+    }
+
+    next?.();
+  }
 }
 
 export function createDurableObjectStore(
@@ -61,6 +118,24 @@ export function createDurableObjectStore(
   const stub = namespace.get(durableObjectId);
 
   return {
+    async acquireLock(key) {
+      const response = await sendStoreOperation(stub, {
+        key,
+        operation: "lock",
+      });
+      const payload = (await response.json()) as Extract<
+        DurableStoreResponse,
+        { token: string }
+      >;
+
+      return async () => {
+        await sendStoreOperation(stub, {
+          key,
+          operation: "unlock",
+          token: payload.token,
+        });
+      };
+    },
     async delete(key) {
       await sendStoreOperation(stub, {
         key,
@@ -72,7 +147,10 @@ export function createDurableObjectStore(
         key,
         operation: "get",
       });
-      const payload = (await response.json()) as DurableStoreResponse;
+      const payload = (await response.json()) as Extract<
+        DurableStoreResponse,
+        { value: string | null }
+      >;
       return payload.value === null ? null : JSON.parse(payload.value);
     },
     async put(key, value) {

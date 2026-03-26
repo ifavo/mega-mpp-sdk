@@ -106,11 +106,14 @@ describe("Cloudflare worker demo", () => {
   });
 
   it("returns an instructive 503 when session escrow configuration is missing", async () => {
-    const response = await dispatch("https://demo.example/api/v1/session/basic", {
-      MEGAETH_SESSION_ESCROW_ADDRESS: undefined,
-      MEGAETH_SETTLEMENT_PRIVATE_KEY: undefined,
-      MPP_SECRET_KEY: undefined,
-    });
+    const response = await dispatch(
+      "https://demo.example/api/v1/session/basic",
+      {
+        MEGAETH_SESSION_ESCROW_ADDRESS: undefined,
+        MEGAETH_SETTLEMENT_PRIVATE_KEY: undefined,
+        MPP_SECRET_KEY: undefined,
+      },
+    );
 
     expect(response.status).toBe(503);
 
@@ -120,7 +123,9 @@ describe("Cloudflare worker demo", () => {
   });
 
   it("returns an instructive 400 when the session state channel id is missing", async () => {
-    const response = await dispatch("https://demo.example/api/v1/session/state");
+    const response = await dispatch(
+      "https://demo.example/api/v1/session/state",
+    );
 
     expect(response.status).toBe(400);
 
@@ -160,4 +165,32 @@ describe("Cloudflare worker demo", () => {
       },
     );
   });
+
+  it("serializes replay-sensitive lock keys through the Durable Object store", async () => {
+    const firstStore = createDurableObjectStore(env.DEMO_STORE);
+    const secondStore = createDurableObjectStore(env.DEMO_STORE);
+    const key = "megaeth:session:verification:channel:demo-1";
+
+    const releaseFirst = await firstStore.acquireLock(key);
+    let secondAcquired = false;
+    const secondLock = secondStore.acquireLock(key).then((release) => {
+      secondAcquired = true;
+      return release;
+    });
+
+    await waitForTurn();
+    expect(secondAcquired).toBe(false);
+
+    await releaseFirst();
+    const releaseSecond = await secondLock;
+    expect(secondAcquired).toBe(true);
+
+    await releaseSecond();
+  });
 });
+
+function waitForTurn(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}

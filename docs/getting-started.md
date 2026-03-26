@@ -373,6 +373,7 @@ cast send "$MEGAETH_PAYMENT_TOKEN_ADDRESS" \
 
 - Keep `MPP_SECRET_KEY` stable across process restarts so challenge verification stays valid.
 - `Store.memory()` is single-process only. Use a shared `channelStore` for multi-instance session runtimes.
+- For multi-instance charge or session verification, use a shared replay store that can serialize replay-sensitive verification keys across instances instead of relying on per-process memory locks.
 - Keep `chainId` and `recipient` explicit. The SDK should not infer network or payee from missing configuration.
 - The settlement wallet should be funded for every server-side on-chain action it is expected to broadcast.
 - Session payees and settlement wallets should stay aligned. The server must settle and close as the configured payee.

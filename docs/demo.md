@@ -11,7 +11,9 @@ The playground ships two runtimes around the same React + Vite client:
 - `demo/server`: local Express server for fast local development
 - `demo/worker`: full-stack Cloudflare Worker that serves static assets and the demo API from one origin
 
-Both runtimes expose the same API routes and the same browser UI. The Worker keeps replay-sensitive charge and session state in a Durable Object.
+Both runtimes expose the same API routes and the same browser UI. The Worker
+keeps replay-sensitive charge and session state in a Durable Object and uses
+that same object to serialize replay-sensitive verification keys.
 
 ## Local Node Runtime
 
@@ -44,6 +46,9 @@ pnpm demo:app
 That setup is enough to inspect the UI and prewire the demo to the current
 testnet payment token, payee, and escrow contract. Funded charge and session
 requests still need `MPP_SECRET_KEY` and `MEGAETH_SETTLEMENT_PRIVATE_KEY`.
+The local Node runtime keeps replay-sensitive charge and session state in
+`.mega-mpp-demo-store.json` in the current working directory so process
+restarts do not clear accepted challenge markers.
 
 ### Funded Testnet Startup
 

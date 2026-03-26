@@ -7,7 +7,7 @@ import {
   handleSessionRequest,
   handleSessionStateRequest,
 } from "./routes.js";
-import { Store } from "../../../../typescript/packages/mpp/src/server/index.js";
+import type { Store } from "../../../../typescript/packages/mpp/src/server/index.js";
 
 type DemoApi = {
   handleRequest: (request: Request) => Promise<Response | null>;
@@ -15,7 +15,7 @@ type DemoApi = {
 
 export function createDemoApi(parameters: {
   environment: DemoEnvironment;
-  store?: Store.Store | undefined;
+  store: Store.Store;
 }): DemoApi {
   const runtimeSet = createDemoRuntimeSet(parameters);
   const { environment } = parameters;

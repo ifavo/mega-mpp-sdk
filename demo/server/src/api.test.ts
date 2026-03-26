@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { TESTNET_USDC } from "../../../typescript/packages/mpp/src/constants.js";
+import { Store } from "../../../typescript/packages/mpp/src/server/index.js";
 import { createDemoBindingsFixture } from "../../shared/testFixtures.js";
 
 import { createDemoApi } from "./api.js";
@@ -15,6 +16,7 @@ describe("demo server API", () => {
           MEGAETH_PAYMENT_TOKEN_ADDRESS: TESTNET_USDC.address,
         }),
       }),
+      store: Store.memory(),
     });
 
     const healthResponse = await api.handleRequest(
@@ -50,6 +52,7 @@ describe("demo server API", () => {
         apiOrigin: "https://demo.example",
         bindings: createDemoBindingsFixture(),
       }),
+      store: Store.memory(),
     });
 
     const response = await api.handleRequest(
@@ -69,6 +72,7 @@ describe("demo server API", () => {
         apiOrigin: "https://demo.example",
         bindings: createDemoBindingsFixture(),
       }),
+      store: Store.memory(),
     });
 
     const response = await api.handleRequest(
@@ -89,6 +93,7 @@ describe("demo server API", () => {
         apiOrigin: "https://demo.example",
         bindings: createDemoBindingsFixture(),
       }),
+      store: Store.memory(),
     });
 
     const response = await api.handleRequest(
@@ -109,6 +114,7 @@ describe("demo server API", () => {
         apiOrigin: "https://demo.example",
         bindings: createDemoBindingsFixture(),
       }),
+      store: Store.memory(),
     });
 
     const response = await api.handleRequest(
