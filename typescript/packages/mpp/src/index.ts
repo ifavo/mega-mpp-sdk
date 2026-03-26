@@ -28,6 +28,8 @@ export {
   SessionClientConfigurationError,
   SessionClientStateError,
   SessionClientTransactionError,
+  SessionStoreConfigurationError,
+  SessionStoreStateError,
 } from "./session/errors.js";
 export {
   computeSessionChannelId,
@@ -44,6 +46,7 @@ export {
   type SubmissionMode,
 } from "./utils/submissionMode.js";
 export {
+  asSingleProcessSessionStore,
   createMemorySessionClientStore,
   createSessionChannelStore,
   getSessionChannelKey,

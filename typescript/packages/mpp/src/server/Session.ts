@@ -18,8 +18,10 @@ import {
   type SessionOnChainChannel,
 } from "../session/channel.js";
 import {
+  asSingleProcessSessionStore,
   createSessionChannelStore,
   getSessionChannelKey,
+  type SessionChannelStore,
   type SessionChannelState,
 } from "../session/store.js";
 import { recoverSessionVoucherSigner } from "../session/voucher.js";
@@ -49,7 +51,9 @@ export function session(
     );
   }
 
-  const channelStore = createSessionChannelStore(store);
+  const channelStore =
+    parameters.channelStore ??
+    createSessionChannelStore(asSingleProcessSessionStore(store));
 
   return Method.toServer(Methods.session, {
     async request({ credential, request }) {
@@ -1093,6 +1097,7 @@ export declare namespace session {
   type Parameters = WalletClientResolver & {
     account?: Account | Address | undefined;
     chainId?: number | undefined;
+    channelStore?: SessionChannelStore | undefined;
     currency?: Address | undefined;
     escrowContract?: Address | undefined;
     recipient?: Address | undefined;

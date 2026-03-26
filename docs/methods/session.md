@@ -97,6 +97,8 @@ The server verifies and persists:
 - last settlement time
 - channel status
 
+The default `session({ store })` path treats channel persistence as single-process. For multi-instance runtimes, pass `channelStore` with cross-instance atomic update semantics instead of relying on the built-in JSON-store helper.
+
 Inline periodic settlement runs after voucher acceptance when either threshold is met:
 
 - `acceptedCumulative - settled >= minUnsettledAmount`

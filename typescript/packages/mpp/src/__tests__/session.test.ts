@@ -3,8 +3,11 @@ import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
 
 import type { SessionReceipt } from "../Methods.js";
+import { sessionContextSchema } from "../client/Session.js";
 import { computeSessionChannelId, ZERO_ADDRESS } from "../session/channel.js";
+import { SessionStoreStateError } from "../session/errors.js";
 import {
+  asSingleProcessSessionStore,
   createMemorySessionClientStore,
   createSessionChannelStore,
   getSessionChannelKey,
@@ -83,17 +86,19 @@ describe("session helpers", () => {
   it("stores client and server session state under deterministic keys", async () => {
     const clientStore = createMemorySessionClientStore();
     const rawStore = new Map<string, unknown>();
-    const channelStore = createSessionChannelStore({
-      delete(key) {
-        rawStore.delete(key);
-      },
-      get(key) {
-        return rawStore.get(key);
-      },
-      put(key, value) {
-        rawStore.set(key, value);
-      },
-    });
+    const channelStore = createSessionChannelStore(
+      asSingleProcessSessionStore({
+        delete(key) {
+          rawStore.delete(key);
+        },
+        get(key) {
+          return rawStore.get(key);
+        },
+        put(key, value) {
+          rawStore.set(key, value);
+        },
+      }),
+    );
 
     const scopeKey = getSessionClientScopeKey({
       chainId: 6343,
@@ -148,6 +153,77 @@ describe("session helpers", () => {
       acceptedCumulative: "1000",
       settled: "0",
     });
+  });
+
+  it("rejects malformed persisted channel state with a dedicated store error", async () => {
+    const rawStore = new Map<string, unknown>();
+    const channelStore = createSessionChannelStore(
+      asSingleProcessSessionStore({
+        delete(key) {
+          rawStore.delete(key);
+        },
+        get(key) {
+          return rawStore.get(key);
+        },
+        put(key, value) {
+          rawStore.set(key, value);
+        },
+      }),
+    );
+    const channelKey = getSessionChannelKey({
+      chainId: 6343,
+      channelId:
+        "0x9003bffb64c050b9ff9aeb03d4f5e4b42643606b8ba0f00ce408e7423eb9dbf4",
+      escrowContract: "0x2222222222222222222222222222222222222222",
+    });
+
+    rawStore.set(channelKey, {
+      acceptedCumulative: "abc",
+      status: "open",
+    });
+
+    await expect(channelStore.getChannel(channelKey)).rejects.toBeInstanceOf(
+      SessionStoreStateError,
+    );
+  });
+
+  it("treats missing persisted channel state as absent when the JSON store returns null", async () => {
+    const channelStore = createSessionChannelStore(
+      asSingleProcessSessionStore({
+        delete() {},
+        get() {
+          return null;
+        },
+        put() {},
+      }),
+    );
+    const channelKey = getSessionChannelKey({
+      chainId: 6343,
+      channelId:
+        "0x9003bffb64c050b9ff9aeb03d4f5e4b42643606b8ba0f00ce408e7423eb9dbf4",
+      escrowContract: "0x2222222222222222222222222222222222222222",
+    });
+
+    await expect(channelStore.getChannel(channelKey)).resolves.toBeUndefined();
+  });
+
+  it("validates numeric session context overrides at the schema boundary", () => {
+    const invalidDeposit = sessionContextSchema.safeParse({
+      action: "open",
+      depositRaw: "1.5",
+    });
+    const invalidTopUp = sessionContextSchema.safeParse({
+      action: "topUp",
+      additionalDepositRaw: "two-thousand",
+    });
+    const invalidCumulative = sessionContextSchema.safeParse({
+      action: "voucher",
+      cumulativeAmountRaw: "10e3",
+    });
+
+    expect(invalidDeposit.success).toBe(false);
+    expect(invalidTopUp.success).toBe(false);
+    expect(invalidCumulative.success).toBe(false);
   });
 
   it("serializes session credentials with the same authorization wrapper as other mppx methods", () => {
