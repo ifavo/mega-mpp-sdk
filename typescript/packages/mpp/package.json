@@ -1,12 +1,16 @@
 {
-  "name": "mega-mpp-sdk",
+  "name": "@moldy/mega-mpp-sdk",
   "version": "0.2.0",
   "description": "MegaETH payment method for the Machine Payments Protocol.",
   "license": "Unlicense",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/ifavo/mega-mpp-sdk.git",
+    "url": "https://github.com/ifavo/mega-mpp-sdk.git",
     "directory": "typescript/packages/mpp"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "type": "module",
   "exports": {
@@ -29,7 +33,9 @@
   },
   "files": [
     "dist",
-    "src/**/*.ts"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

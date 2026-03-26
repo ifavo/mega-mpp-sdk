@@ -4,7 +4,9 @@
   "private": true,
   "packageManager": "pnpm@10.28.2",
   "scripts": {
-    "build": "pnpm contracts:build && pnpm --dir typescript build",
+    "build": "pnpm contracts:build && pnpm --dir typescript build && pnpm demo:build",
+    "ci:check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "ci:install": "pnpm --dir typescript install --frozen-lockfile && pnpm --dir demo/app install --frozen-lockfile && pnpm --dir demo/server install --frozen-lockfile && pnpm --dir demo/worker install --frozen-lockfile",
     "contracts:build": "forge build --root contracts",
     "contracts:test": "forge test --root contracts",
     "contracts:verify": "./contracts/script/verify-session-escrow.sh",
@@ -21,6 +23,10 @@
     "demo:worker:test": "pnpm --dir demo/worker test",
     "demo:worker:typecheck": "pnpm --dir demo/worker typecheck",
     "lint": "pnpm --dir typescript lint && pnpm --dir typescript format:check",
+    "release:gate": "pnpm ci:check && pnpm --dir typescript audit --prod --audit-level high",
+    "release:prepare": "pnpm --dir typescript exec tsx scripts/release/prepareRelease.ts",
+    "release:sync": "pnpm --dir typescript exec tsx scripts/release/syncRelease.ts",
+    "release:verify-pack": "pnpm --dir typescript exec tsx scripts/release/verifyPackagePack.ts",
     "test": "pnpm contracts:test && pnpm --dir typescript test:all && pnpm demo:test",
     "test:live": "pnpm --dir typescript test:live",
     "typecheck": "pnpm --dir typescript typecheck && pnpm demo:typecheck"

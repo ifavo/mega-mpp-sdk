@@ -2,7 +2,7 @@ import type { charge } from "./Charge.js";
 import type { session } from "./Session.js";
 
 const MEGAETH_SERVER_METHOD_METADATA = Symbol(
-  "mega-mpp-sdk/megaeth-server-method",
+  "@moldy/mega-mpp-sdk/megaeth-server-method",
 );
 
 export type MegaethServerMethodMetadata =

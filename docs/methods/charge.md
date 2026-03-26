@@ -17,8 +17,8 @@ settlement wallet is also the payee, opt in visibly with
 `recipient: settlementAccount.address`.
 
 ```ts
-import { Mppx, megaeth } from "mega-mpp-sdk/server";
-import { megaethMainnet } from "mega-mpp-sdk/chains";
+import { Mppx, megaeth } from "@moldy/mega-mpp-sdk/server";
+import { megaethMainnet } from "@moldy/mega-mpp-sdk/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
 const settlementAccount = privateKeyToAccount(

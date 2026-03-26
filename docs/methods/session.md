@@ -17,8 +17,8 @@ for `account`, `chainId`, `currency`, and `recipient`, but it still requires
 explicit session policy:
 
 ```ts
-import { Mppx, Store, megaeth } from "mega-mpp-sdk/server";
-import { megaethTestnet } from "mega-mpp-sdk/chains";
+import { Mppx, Store, megaeth } from "@moldy/mega-mpp-sdk/server";
+import { megaethTestnet } from "@moldy/mega-mpp-sdk/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
 const settlementAccount = privateKeyToAccount(

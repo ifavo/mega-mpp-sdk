@@ -19,4 +19,21 @@ export default [
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    files: ['scripts/**/*.ts'],
+    languageOptions: {
+      parser,
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+    },
+    rules: {
+      'no-console': ['error', { allow: ['log', 'warn', 'error'] }],
+      '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
 ];

@@ -11,11 +11,11 @@
     "test:integration": "vitest run --config vitest.config.integration.ts",
     "test:all": "pnpm test && pnpm test:integration",
     "test:live": "vitest run --config vitest.config.integration.ts --project live",
-    "typecheck": "pnpm -r typecheck",
-    "lint": "eslint packages/*/src --ext .ts",
-    "lint:fix": "eslint packages/*/src --ext .ts --fix",
-    "format": "prettier --write \"packages/*/src/**/*.ts\"",
-    "format:check": "prettier --check \"packages/*/src/**/*.ts\""
+    "typecheck": "pnpm -r typecheck && tsc --noEmit -p tsconfig.scripts.json",
+    "lint": "eslint packages/*/src scripts --ext .ts",
+    "lint:fix": "eslint packages/*/src scripts --ext .ts --fix",
+    "format": "prettier --write \"packages/*/src/**/*.ts\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check \"packages/*/src/**/*.ts\" \"scripts/**/*.ts\""
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

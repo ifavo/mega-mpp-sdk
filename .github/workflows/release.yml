@@ -1,0 +1,188 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_BRANCH: release/sync-${{ github.ref_name }}
+      RELEASE_TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          scope: "@moldy"
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            typescript/pnpm-lock.yaml
+            demo/app/pnpm-lock.yaml
+            demo/server/pnpm-lock.yaml
+            demo/worker/pnpm-lock.yaml
+
+      - name: Set up Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Install dependencies
+        run: pnpm ci:install
+
+      - name: Prepare release version
+        id: prepare
+        run: pnpm run release:prepare "${RELEASE_TAG}"
+
+      - name: Run full release gate
+        run: pnpm release:gate
+
+      - name: Verify npm tarball contents
+        run: pnpm release:verify-pack
+
+      - name: Stop on duplicate npm version
+        env:
+          PACKAGE_VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          stderr_path="${RUNNER_TEMP}/npm-view.stderr"
+
+          if npm view "@moldy/mega-mpp-sdk@${PACKAGE_VERSION}" version --json >/dev/null 2>"${stderr_path}"; then
+            echo "::error title=Version already published::@moldy/mega-mpp-sdk@${PACKAGE_VERSION} is already on npm. Push a new vX.Y.Z tag before retrying."
+            exit 1
+          fi
+
+          if grep -Eq 'E404|404 Not Found' "${stderr_path}"; then
+            exit 0
+          fi
+
+          cat "${stderr_path}"
+          echo "::error title=Unable to verify npm version availability::Resolve the npm registry lookup problem and retry the release."
+          exit 1
+
+      - name: Generate GitHub release notes
+        id: release_notes
+        run: |
+          set -euo pipefail
+          notes_json_path="${RUNNER_TEMP}/release-notes.json"
+          notes_markdown_path="${RUNNER_TEMP}/release-notes.md"
+
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="${RELEASE_TAG}" \
+            -f target_commitish="${GITHUB_SHA}" >"${notes_json_path}"
+
+          jq -r '.body' "${notes_json_path}" >"${notes_markdown_path}"
+
+          {
+            echo "notes_file=${notes_markdown_path}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Publish package to npm
+        working-directory: typescript/packages/mpp
+        run: |
+          set -euo pipefail
+
+          if ! npm publish --access public; then
+            echo "::error title=npm publish failed::Verify the npm trusted publisher for ifavo/mega-mpp-sdk points to release.yml and that @moldy/mega-mpp-sdk@${{ steps.prepare.outputs.version }} has not already been published."
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        env:
+          RELEASE_NOTES_FILE: ${{ steps.release_notes.outputs.notes_file }}
+          RELEASE_TITLE: ${{ steps.prepare.outputs.release_title }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "GitHub release ${RELEASE_TAG} already exists."
+            exit 0
+          fi
+
+          gh release create "${RELEASE_TAG}" \
+            --notes-file "${RELEASE_NOTES_FILE}" \
+            --target "${GITHUB_SHA}" \
+            --title "${RELEASE_TITLE}"
+
+      - name: Open sync pull request
+        env:
+          PACKAGE_VERSION: ${{ steps.prepare.outputs.version }}
+          RELEASE_NOTES_FILE: ${{ steps.release_notes.outputs.notes_file }}
+        run: |
+          set -euo pipefail
+          release_date="$(date -u +%Y-%m-%d)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B "${RELEASE_BRANCH}" origin/main
+
+          pnpm run release:sync "${RELEASE_TAG}" "${RELEASE_NOTES_FILE}" "${release_date}"
+
+          if git diff --quiet; then
+            echo "Release sync is already present on ${RELEASE_BRANCH}."
+            exit 0
+          fi
+
+          git add typescript/packages/mpp/package.json typescript/packages/mpp/CHANGELOG.md
+          git commit -m "chore(release): sync ${RELEASE_TAG}"
+          git push --force-with-lease origin "${RELEASE_BRANCH}"
+
+          existing_pr_url="$(gh pr list \
+            --base main \
+            --head "${RELEASE_BRANCH}" \
+            --json url \
+            --jq 'if length == 0 then "" else .[0].url end')"
+
+          if [ -n "${existing_pr_url}" ]; then
+            echo "Release sync pull request already exists: ${existing_pr_url}"
+            exit 0
+          fi
+
+          pr_body_file="${RUNNER_TEMP}/release-sync-pr-body.md"
+          printf '%s\n' \
+            '## Summary' \
+            '' \
+            "- sync \`${RELEASE_TAG}\` back to \`main\`" \
+            "- update \`typescript/packages/mpp/package.json\` to \`${PACKAGE_VERSION}\`" \
+            "- add the generated GitHub release notes to \`typescript/packages/mpp/CHANGELOG.md\`" \
+            >"${pr_body_file}"
+
+          if ! gh pr create \
+            --base main \
+            --body-file "${pr_body_file}" \
+            --head "${RELEASE_BRANCH}" \
+            --title "chore(release): sync ${RELEASE_TAG}"; then
+            echo "::error title=Release sync PR creation failed::@moldy/mega-mpp-sdk@${PACKAGE_VERSION} is already published. Create a pull request from ${RELEASE_BRANCH} to main so package.json and CHANGELOG.md stay in sync."
+            exit 1
+          fi

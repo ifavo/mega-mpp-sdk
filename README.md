@@ -1,4 +1,4 @@
-# mega-mpp-sdk
+# @moldy/mega-mpp-sdk
 
 MegaETH payment methods for the Machine Payments Protocol.
 
@@ -32,7 +32,7 @@ The default server path is intentionally short:
 ## Install
 
 ```bash
-pnpm add mega-mpp-sdk
+pnpm add @moldy/mega-mpp-sdk
 ```
 
 ## Quick Start
@@ -44,8 +44,8 @@ This is the shortest integration-first server example. It keeps `chainId` and
 first: either return the challenge or return the data.
 
 ```ts
-import { Mppx, megaeth } from "mega-mpp-sdk/server";
-import { megaethMainnet } from "mega-mpp-sdk/chains";
+import { Mppx, megaeth } from "@moldy/mega-mpp-sdk/server";
+import { megaethMainnet } from "@moldy/mega-mpp-sdk/chains";
 import { parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -93,8 +93,8 @@ For the quick charge path:
 When you want readability over magic, use the exported chain objects:
 
 ```ts
-import { Mppx, megaeth } from "mega-mpp-sdk/server";
-import { megaethTestnet } from "mega-mpp-sdk/chains";
+import { Mppx, megaeth } from "@moldy/mega-mpp-sdk/server";
+import { megaethTestnet } from "@moldy/mega-mpp-sdk/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
 const settlementAccount = privateKeyToAccount(
@@ -117,8 +117,8 @@ const mppx = Mppx.create({
 `session` still needs explicit escrow and settlement policy, but it can inherit the explicit create-level account, chain, currency, and recipient values you already chose:
 
 ```ts
-import { Mppx, Store, megaeth } from "mega-mpp-sdk/server";
-import { megaethTestnet } from "mega-mpp-sdk/chains";
+import { Mppx, Store, megaeth } from "@moldy/mega-mpp-sdk/server";
+import { megaethTestnet } from "@moldy/mega-mpp-sdk/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
 const settlementAccount = privateKeyToAccount(
@@ -159,7 +159,7 @@ const mppx = Mppx.create({
 Client APIs stay explicit because the wallet and transport configuration belongs on the client side:
 
 ```ts
-import { Mppx, megaeth } from "mega-mpp-sdk/client";
+import { Mppx, megaeth } from "@moldy/mega-mpp-sdk/client";
 
 const mppx = Mppx.create({
   methods: [
@@ -194,6 +194,7 @@ const mppx = Mppx.create({
 - Runtime walkthroughs: [docs/demo.md](docs/demo.md)
 - Charge reference: [docs/methods/charge.md](docs/methods/charge.md)
 - Session reference: [docs/methods/session.md](docs/methods/session.md)
+- Release guide: [docs/releasing.md](docs/releasing.md)
 - Demo workspace notes: [demo/README.md](demo/README.md)
 
 ## Development

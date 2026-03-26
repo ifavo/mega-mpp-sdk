@@ -89,8 +89,8 @@ just release-prep
 This is the shortest explicit server setup for the mainnet/USDm path when the settlement wallet is intentionally also the payee:
 
 ```ts
-import { Mppx, megaeth } from "mega-mpp-sdk/server";
-import { megaethMainnet } from "mega-mpp-sdk/chains";
+import { Mppx, megaeth } from "@moldy/mega-mpp-sdk/server";
+import { megaethMainnet } from "@moldy/mega-mpp-sdk/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
 const settlementAccount = privateKeyToAccount(
@@ -127,8 +127,8 @@ return result.withReceipt(new Response("ok"));
 Use explicit chain objects whenever you want a readable override:
 
 ```ts
-import { Mppx, Store, megaeth } from "mega-mpp-sdk/server";
-import { megaethTestnet } from "mega-mpp-sdk/chains";
+import { Mppx, Store, megaeth } from "@moldy/mega-mpp-sdk/server";
+import { megaethTestnet } from "@moldy/mega-mpp-sdk/chains";
 import { privateKeyToAccount } from "viem/accounts";
 
 const settlementAccount = privateKeyToAccount(
