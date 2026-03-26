@@ -4,6 +4,7 @@ import {
   megaeth as megaethMethod,
 } from "../../../../typescript/packages/mpp/src/server/index.js";
 import {
+  asSingleProcessSessionStore,
   createSessionChannelStore,
   type SessionChannelStore,
 } from "../../../../typescript/packages/mpp/src/index.js";
@@ -98,7 +99,7 @@ export function createDemoRuntimeSet(parameters: {
     chargeRuntimes,
     config: createDemoConfig(environment),
     sessionMppx,
-    sessionStore: createSessionChannelStore(store),
+    sessionStore: createSessionChannelStore(asSingleProcessSessionStore(store)),
   };
 }
 
