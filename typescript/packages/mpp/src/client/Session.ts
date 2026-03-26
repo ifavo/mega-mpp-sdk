@@ -31,14 +31,19 @@ import {
   resolveWalletClient,
   type WalletClientResolver,
 } from "../utils/clients.js";
+import { baseUnitIntegerString } from "../utils/baseUnit.js";
 
 export const sessionContextSchema = z.object({
   action: z.optional(z.enum(["close", "open", "topUp", "voucher"])),
-  additionalDepositRaw: z.optional(z.string()),
+  additionalDepositRaw: z.optional(
+    baseUnitIntegerString("session additional deposit override"),
+  ),
   authorizeCurrentRequest: z.optional(z.boolean()),
   channelId: z.optional(z.hash()),
-  cumulativeAmountRaw: z.optional(z.string()),
-  depositRaw: z.optional(z.string()),
+  cumulativeAmountRaw: z.optional(
+    baseUnitIntegerString("session cumulative amount override"),
+  ),
+  depositRaw: z.optional(baseUnitIntegerString("session deposit override")),
 });
 
 export function session(

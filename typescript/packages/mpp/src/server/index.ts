@@ -3,6 +3,11 @@ export { session } from "./Session.js";
 export { megaeth } from "./Methods.js";
 export { Mppx, Store } from "mppx/server";
 export {
+  SessionStoreConfigurationError,
+  SessionStoreStateError,
+} from "../session/errors.js";
+export {
+  asSingleProcessSessionStore,
   createSessionChannelStore,
   getSessionChannelKey,
   type SessionChannelState,

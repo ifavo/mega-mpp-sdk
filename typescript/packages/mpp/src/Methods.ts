@@ -1,17 +1,6 @@
 import { Method, z } from "mppx";
 
-const BASE_UNIT_INTEGER_PATTERN = /^\d+$/;
-
-function baseUnitIntegerString(label: string) {
-  return z
-    .string()
-    .check(
-      z.regex(
-        BASE_UNIT_INTEGER_PATTERN,
-        `Use a base-unit integer string for ${label} before retrying the payment.`,
-      ),
-    );
-}
+import { baseUnitIntegerString } from "./utils/baseUnit.js";
 
 const tokenPermissionSchema = z.object({
   token: z.address(),

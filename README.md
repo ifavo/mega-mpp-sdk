@@ -186,6 +186,8 @@ For the MegaETH Carrot walkthrough:
 
 The full walkthrough lives in [docs/getting-started.md](/Users/m/workspace/mega-mpp-sdk/docs/getting-started.md) and [docs/demo.md](/Users/m/workspace/mega-mpp-sdk/docs/demo.md).
 
+For session servers, `store: Store.memory()` keeps channel persistence single-process. When you run more than one worker or instance, pass `channelStore` with an implementation that coordinates atomic channel updates across instances.
+
 ## Breaking Cleanup In 0.2.0
 
 - the session client context no longer accepts `managementOnly`
