@@ -2,39 +2,69 @@
 
 MegaETH payment method SDK for the Machine Payments Protocol.
 
-`mega-mpp-sdk` mirrors the Solana MPP SDK structure, but v1 is intentionally scoped to the **charge** method only. It implements the current MegaETH charge draft from [mpp-specs PR 205](https://github.com/tempoxyz/mpp-specs/pull/205) and keeps the client/server developer experience aligned with the Solana reference SDK.
+`mega-mpp-sdk` mirrors the Solana MPP SDK structure for MegaETH and now ships both first-class MegaETH methods:
+
+- `charge` for one-shot Permit2-backed payments
+- `session` for reusable escrow-backed voucher channels
 
 > [!IMPORTANT]
-> The MegaETH charge spec is still a draft as of March 25, 2026. Wire details can still change, and this repository documents the places where the SDK has to make draft-specific assumptions.
+> The MegaETH charge spec in PR 205 and the Tempo session method are still evolving as of March 25, 2026. This repository documents the draft-specific assumptions where the SDK has to pin behavior.
 
 ## Scope
 
-- Charge-only v1. `session` is intentionally deferred.
-- Direct Permit2 settlement for server-settled flows.
-- Broadcast `hash` mode for payer-settled flows.
-- Split payments, fee sponsorship, replay protection, and RFC 9457-compatible instructive errors.
-- Viem-first ergonomics for local accounts, wallet clients, public clients, and browser/EIP-1193 wallets.
+- Charge flows:
+  - direct Permit2 settlement
+  - transaction-hash credential mode
+  - splits
+  - fee sponsorship
+  - replay protection
+  - RFC 9457-compatible instructive errors
+- Session flows:
+  - upgradeable in-repo MegaETH escrow contract
+  - payer and delegated-signer vouchers
+  - cooperative close
+  - inline periodic settlement
+  - durable channel state for server runtimes
+- Viem-first ergonomics for local accounts, wallet clients, public clients, and browser/EIP-1193 wallets
 
 ## Package Exports
 
-- `mega-mpp-sdk`: shared charge schemas, types, constants, and MegaETH method definitions.
-- `mega-mpp-sdk/client`: client charge method factory plus `Mppx`.
-- `mega-mpp-sdk/server`: server charge method factory plus `Mppx` and `Store`.
+- `mega-mpp-sdk`
+  - `charge`
+  - `session`
+  - MegaETH method schemas and types
+  - session authorizers
+  - channel ID and voucher helpers
+  - session client/server store helpers
+- `mega-mpp-sdk/client`
+  - `megaeth.charge(...)`
+  - `megaeth.session(...)`
+  - `Mppx`
+  - `WalletSessionAuthorizer`
+  - `DelegatedSessionAuthorizer`
+- `mega-mpp-sdk/server`
+  - `megaeth.charge(...)`
+  - `megaeth.session(...)`
+  - `Mppx`
+  - `Store`
+  - session channel store helpers and types
 
 ## Repository Layout
 
 ```text
 mega-mpp-sdk/
+├── contracts/
 ├── typescript/
 │   └── packages/mpp/
 │       └── src/
 │           ├── Methods.ts
-│           ├── constants.ts
 │           ├── client/
 │           ├── server/
+│           ├── session/
 │           ├── utils/
 │           └── __tests__/
 ├── docs/
+│   └── methods/
 ├── demo/
 │   ├── app/
 │   ├── server/
@@ -51,80 +81,143 @@ pnpm add mega-mpp-sdk
 
 ## Quick Start
 
-### Server
+### Charge Server
 
 ```ts
-import { Mppx, megaeth } from 'mega-mpp-sdk/server'
-import { privateKeyToAccount } from 'viem/accounts'
+import { Mppx, megaeth } from "mega-mpp-sdk/server";
+import { privateKeyToAccount } from "viem/accounts";
 
-const settlementAccount = privateKeyToAccount(process.env.MEGAETH_SETTLEMENT_PRIVATE_KEY!)
+const settlementAccount = privateKeyToAccount(
+  process.env.MEGAETH_SETTLEMENT_PRIVATE_KEY!,
+);
 
 const mppx = Mppx.create({
   secretKey: process.env.MPP_SECRET_KEY,
   methods: [
     megaeth.charge({
       account: settlementAccount,
-      currency: '0xFAfDdbb3FC7688494971a79cc65DCa3EF82079E7',
+      chainId: 6343,
+      currency: process.env.MEGAETH_TOKEN_ADDRESS!,
+      permit2Address: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
       recipient: settlementAccount.address,
       testnet: true,
     }),
   ],
-})
+});
+```
+
+### Session Server
+
+```ts
+import { Mppx, Store, megaeth } from "mega-mpp-sdk/server";
+import { privateKeyToAccount } from "viem/accounts";
+
+const serverAccount = privateKeyToAccount(
+  process.env.MEGAETH_SETTLEMENT_PRIVATE_KEY!,
+);
+
+const mppx = Mppx.create({
+  secretKey: process.env.MPP_SECRET_KEY,
+  methods: [
+    megaeth.session({
+      account: serverAccount,
+      chainId: 6343,
+      currency: process.env.MEGAETH_TOKEN_ADDRESS!,
+      escrowContract: process.env.MEGAETH_SESSION_ESCROW_ADDRESS!,
+      recipient: serverAccount.address,
+      settlement: {
+        close: { enabled: true },
+        periodic: {
+          intervalSeconds: 3600,
+          minUnsettledAmount: "200000",
+        },
+      },
+      store: Store.memory(),
+      suggestedDeposit: "500000",
+      testnet: true,
+      unitType: "request",
+      verifier: {
+        allowDelegatedSigner: true,
+        minVoucherDelta: "100000",
+      },
+    }),
+  ],
+});
 ```
 
 ### Client
 
 ```ts
-import { Mppx, megaeth } from 'mega-mpp-sdk/client'
+import { Mppx, megaeth } from "mega-mpp-sdk/client";
 
 const mppx = Mppx.create({
   methods: [
     megaeth.charge({
-      walletClient,
-      publicClient,
       account,
-      credentialMode: 'permit2',
-      submissionMode: 'auto',
+      credentialMode: "permit2",
+      publicClient,
+      walletClient,
+    }),
+    megaeth.session({
+      account,
+      deposit: "500000",
+      publicClient,
+      walletClient,
     }),
   ],
-})
-
-const response = await mppx.fetch('https://api.example.com/paid-resource')
+});
 ```
 
-## Draft Caveats
+## Demo Quickstart
 
-- The draft MegaETH charge spec does not currently expose a distinct spender field for direct Permit2 settlement. This SDK therefore signs the challenge `recipient` as the spender in direct mode, which means the settlement wallet and recipient must match.
-- Split payments use a batch Permit2 extension in the SDK implementation when multiple transfer legs are present. The single-transfer path remains draft-compatible.
-- Chain selection is explicit. Every charge request must resolve a MegaETH network through either `methodDetails.chainId` or `methodDetails.testnet`; the SDK does not assume mainnet anymore.
-- `submissionMode` now lets callers choose `auto`, `sync`, `realtime`, or `sendAndWait`. `auto` only falls back when the current transport explicitly reports an unsupported method.
-- Receipt headers stay `mppx`-compatible. The serialized `Payment-Receipt` header contains `method`, `reference`, `status`, `timestamp`, and optional `externalId`; it does not embed `challengeId`.
+The local demo starts with two commands once the environment is exported:
 
-## Permit2 Approval
+```bash
+pnpm demo:server
+pnpm demo:app
+```
 
-Before running a funded local, live, or demo flow, approve Permit2 once for the token you want to spend. The payer wallet needs:
+For the MegaETH Carrot walkthrough:
 
-- the payment token balance
-- enough ETH for MegaETH gas when you use `credentialMode: 'hash'`
-- an ERC-20 approval that lets Permit2 spend at least the amount you plan to test
+- use testnet USDC at `0x75139a9559c9cd1ad69b7e239c216151d2c81e6f`, not the default USDm example token
+- charge flows require one-time Permit2 approval
+- session flows require a deployed `MegaMppSessionEscrow` plus a direct ERC-20 approval to that escrow contract
+- when you deploy the session escrow with Foundry on MegaETH, add `--skip-simulation` to `forge script`
 
-For the Carrot testnet demo, use testnet USDC at `0x75139a9559c9cd1ad69b7e239c216151d2c81e6f` instead of the default USDm example token and set `MEGAETH_TOKEN_ADDRESS` explicitly.
+The full walkthrough lives in [docs/getting-started.md](/Users/m/workspace/mega-mpp-sdk/docs/getting-started.md) and [docs/demo.md](/Users/m/workspace/mega-mpp-sdk/docs/demo.md).
 
-The full walkthrough for local, live, and demo setup lives in [docs/getting-started.md](/Users/m/workspace/mega-mpp-sdk/docs/getting-started.md).
+## Breaking Cleanup In 0.2.0
+
+- the session client context no longer accepts `managementOnly`
+- use `context.action = "topUp"` with `authorizeCurrentRequest: false` for a pure management top-up
+- `close` remains an explicit `context.action = "close"` flow without extra flags
+
+## Method Docs
+
+- [MegaETH Charge](/Users/m/workspace/mega-mpp-sdk/docs/methods/charge.md)
+- [MegaETH Session](/Users/m/workspace/mega-mpp-sdk/docs/methods/session.md)
 
 ## Development
 
 ```bash
 pnpm --dir typescript install
+pnpm demo:install
+just contracts-test
+just contracts-verify
 just ts-typecheck
 just ts-test
 just ts-test-integration
+just demo-test
 just ts-audit
-just ts-build
 just release-prep
 ```
 
-For a demo walkthrough, including the local Express path and the Cloudflare Worker path, see [docs/getting-started.md](/Users/m/workspace/mega-mpp-sdk/docs/getting-started.md) and [docs/demo.md](/Users/m/workspace/mega-mpp-sdk/docs/demo.md).
+## Draft Caveats
+
+- Charge direct settlement signs the challenge `recipient` as the spender because PR 205 does not yet expose a separate spender field.
+- Charge split payments use a batch Permit2 extension when more than one transfer leg is needed.
+- Session receipts stay `mppx`-compatible in v1. Richer session acceptance state is returned alongside the resource or demo state, not inside the serialized `Payment-Receipt` header.
+- Session gas sponsorship is out of scope in v1. The payer wallet pays gas for `open` and `topUp`, while the server settlement wallet pays gas for `settle` and `close`.
 
 ## License
 

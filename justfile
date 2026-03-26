@@ -3,6 +3,15 @@ set shell := ["bash", "-uc"]
 default:
     @just --list
 
+contracts-build:
+    forge build --root contracts
+
+contracts-test:
+    forge test --root contracts
+
+contracts-verify:
+    ./contracts/script/verify-session-escrow.sh
+
 ts-install:
     cd typescript && pnpm install
 
@@ -33,10 +42,16 @@ demo-install:
 demo-build:
     pnpm demo:build
 
-release-prep: ts-typecheck ts-lint ts-test ts-test-integration ts-build demo-build ts-audit
+demo-typecheck:
+    pnpm demo:typecheck
 
-build: ts-build demo-build
+demo-test:
+    pnpm demo:test
 
-test: ts-test ts-test-integration
+release-prep: contracts-test ts-typecheck ts-lint ts-test ts-test-integration ts-build demo-typecheck demo-test demo-build ts-audit
 
-pre-commit: ts-typecheck ts-lint ts-test ts-test-integration ts-build
+build: contracts-build ts-build demo-build
+
+test: contracts-test ts-test ts-test-integration demo-test
+
+pre-commit: contracts-test ts-typecheck ts-lint ts-test ts-test-integration ts-build demo-typecheck

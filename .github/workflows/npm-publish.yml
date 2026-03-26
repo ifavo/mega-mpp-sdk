@@ -10,6 +10,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -23,6 +25,9 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
           cache-dependency-path: |
+            demo/app/pnpm-lock.yaml
+            demo/server/pnpm-lock.yaml
+            demo/worker/pnpm-lock.yaml
             typescript/pnpm-lock.yaml
 
       - name: Setup Foundry
@@ -33,11 +38,18 @@ jobs:
       - name: Install dependencies
         run: pnpm --dir typescript install --frozen-lockfile
 
+      - name: Install demo dependencies
+        run: pnpm demo:install
+
       - name: Verify package
         run: |
+          forge test --root contracts
           pnpm --dir typescript typecheck
           pnpm --dir typescript test:all
           pnpm --dir typescript build
+          pnpm demo:typecheck
+          pnpm demo:test
+          pnpm demo:build
           test -f typescript/packages/mpp/dist/index.js
 
       - name: Inspect packed package contents

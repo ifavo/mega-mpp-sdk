@@ -1,4 +1,4 @@
-export { charge, megaeth } from "./Methods.js";
+export { charge, megaeth, session } from "./Methods.js";
 export type {
   ChargeCredentialPayload,
   ChargeHashPayload,
@@ -8,7 +8,54 @@ export type {
   ChargeSplit,
   PermitBatchPayload,
   PermitSinglePayload,
+  SessionClosePayload,
+  SessionCredentialPayload,
+  SessionOpenPayload,
+  SessionReceipt,
+  SessionRequest,
+  SessionTopUpPayload,
+  SessionVoucherPayload,
   TransferBatchWitness,
   TransferDetail,
   TransferSingleWitness,
 } from "./Methods.js";
+export {
+  DelegatedSessionAuthorizer,
+  WalletSessionAuthorizer,
+  type SessionAuthorizer,
+} from "./session/authorizers.js";
+export {
+  SessionClientConfigurationError,
+  SessionClientStateError,
+  SessionClientTransactionError,
+} from "./session/errors.js";
+export {
+  computeSessionChannelId,
+  decodeSessionEscrowCall,
+  readSessionChannel,
+  type SessionOnChainChannel,
+} from "./session/channel.js";
+export {
+  describeSubmissionMode,
+  formatSubmissionModeLabel,
+  isSubmissionMode,
+  parseSubmissionMode,
+  submissionModes,
+  type SubmissionMode,
+} from "./utils/submissionMode.js";
+export {
+  createMemorySessionClientStore,
+  createSessionChannelStore,
+  getSessionChannelKey,
+  getSessionClientScopeKey,
+  type SessionChannelState,
+  type SessionChannelStore,
+  type SessionClientState,
+  type SessionClientStateStore,
+  type SessionJsonStore,
+  type SessionSignerMode,
+} from "./session/store.js";
+export {
+  buildSessionVoucherTypedData,
+  recoverSessionVoucherSigner,
+} from "./session/voucher.js";

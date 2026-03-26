@@ -27,6 +27,9 @@ app.get("/api/v1/health", handleApiRequest);
 app.get("/api/v1/config", handleApiRequest);
 app.get("/api/v1/charge/basic", handleApiRequest);
 app.get("/api/v1/charge/splits", handleApiRequest);
+app.get("/api/v1/session/basic", handleApiRequest);
+app.get("/api/v1/session/state", handleApiRequest);
+app.head("/api/v1/session/basic", handleApiRequest);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appDist = path.resolve(__dirname, "../../app/dist");
