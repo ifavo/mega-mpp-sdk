@@ -35,6 +35,11 @@ The default server path is intentionally short:
 pnpm add @moldy/mega-mpp-sdk
 ```
 
+## Agents
+
+- Coding agents should start with [docs/agent-integration.md](docs/agent-integration.md).
+- Tooling that supports an agent index can start with [llms.txt](llms.txt).
+
 ## Quick Start
 
 ### Quick Charge Server
@@ -190,6 +195,8 @@ const mppx = Mppx.create({
 
 ## Docs
 
+- Coding agents: [docs/agent-integration.md](docs/agent-integration.md)
+- Agent index: [llms.txt](llms.txt)
 - Start here: [docs/getting-started.md](docs/getting-started.md)
 - Runtime walkthroughs: [docs/demo.md](docs/demo.md)
 - Charge reference: [docs/methods/charge.md](docs/methods/charge.md)

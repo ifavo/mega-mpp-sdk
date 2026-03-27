@@ -13,6 +13,11 @@ The package ships both first-class MegaETH flows:
 pnpm add @moldy/mega-mpp-sdk
 ```
 
+## Agents
+
+- Coding agents should start with [github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md).
+- Tooling that supports an agent index can start with [github.com/ifavo/mega-mpp-sdk/blob/main/llms.txt](https://github.com/ifavo/mega-mpp-sdk/blob/main/llms.txt).
+
 ## Package Exports
 
 - `@moldy/mega-mpp-sdk/server`
@@ -41,6 +46,8 @@ const mppx = Mppx.create({
 
 ## Docs
 
+- Coding agents: [github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md)
+- Agent index: [github.com/ifavo/mega-mpp-sdk/blob/main/llms.txt](https://github.com/ifavo/mega-mpp-sdk/blob/main/llms.txt)
 - Getting started: [github.com/ifavo/mega-mpp-sdk/blob/main/docs/getting-started.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/getting-started.md)
 - Charge reference: [github.com/ifavo/mega-mpp-sdk/blob/main/docs/methods/charge.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/methods/charge.md)
 - Session reference: [github.com/ifavo/mega-mpp-sdk/blob/main/docs/methods/session.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/methods/session.md)

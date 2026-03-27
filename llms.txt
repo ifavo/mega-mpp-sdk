@@ -1,0 +1,29 @@
+# @moldy/mega-mpp-sdk
+
+Start with the canonical integration guide before reading anything else:
+
+- Canonical agent guide: https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md
+
+Default integration path:
+
+- Use `charge` unless the caller explicitly needs a reusable funded channel.
+- Use `session` only when the caller wants repeated requests against one funded escrow channel.
+- Keep `chainId` and `recipient` explicit. Do not guess network or payee values.
+- Use only the public package entrypoints:
+  - `@moldy/mega-mpp-sdk/server`
+  - `@moldy/mega-mpp-sdk/client`
+  - `@moldy/mega-mpp-sdk/chains`
+- Use published constants instead of guessing:
+  - Mainnet: chainId `4326`, RPC `https://mainnet.megaeth.com/rpc`, charge token USDm `0xFAfDdbb3FC7688494971a79cc65DCa3EF82079E7`
+  - Testnet: chainId `6343`, RPC `https://carrot.megaeth.com/rpc`, charge token USDC `0x75139a9559c9cd1ad69b7e239c216151d2c81e6f`
+  - Permit2: `0x000000000022D473030F116dDEE9F6B43aC78BA3`
+  - Published testnet session escrow: `0xD83A68408539868e5f48D0E93537f56afBB9d512`
+- Set `submissionMode` explicitly when the flow broadcasts a transaction.
+- Keep the settlement wallet and `recipient` aligned for server-broadcast `charge` and all `session` flows.
+- Mainnet `session` requires a user-provided or freshly deployed escrow contract. Do not assume a published mainnet escrow address exists.
+
+Reference docs:
+
+- Charge reference: https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/methods/charge.md
+- Session reference: https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/methods/session.md
+- Demo and runtime guide: https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/demo.md
