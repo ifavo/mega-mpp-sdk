@@ -94,6 +94,74 @@ For the quick charge path:
 - `recipient` and `methodDetails.chainId`: optional on the route request when you already set `recipient` and `chainId` in `Mppx.create(...)`, as this example does.
 - `megaeth.charge({ submissionMode })`: optional to pass, but it has no automatic SDK default. Set `sync`, `realtime`, or `sendAndWait` before using a broadcast flow.
 
+### Quick Cloudflare Worker
+
+Cloudflare Workers are supported today. The smallest correct production shape
+looks like this: keep the route in the Worker, and keep challenge and replay
+state in a shared Durable Object-backed store instead of per-request memory.
+
+```ts
+import { Mppx, megaeth } from "@moldy/mega-mpp-sdk/server";
+import { megaethTestnet } from "@moldy/mega-mpp-sdk/chains";
+import { privateKeyToAccount } from "viem/accounts";
+import { createDurableObjectStore } from "./store";
+
+export interface Env {
+  MPP_SECRET_KEY: string;
+  MEGAETH_PAYMENT_TOKEN_ADDRESS: `0x${string}`;
+  MEGAETH_RPC_URL: string;
+  MEGAETH_SETTLEMENT_PRIVATE_KEY: `0x${string}`;
+  PAYMENT_STORE: DurableObjectNamespace;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    if (new URL(request.url).pathname !== "/api/v1/paid") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const settlementAccount = privateKeyToAccount(
+      env.MEGAETH_SETTLEMENT_PRIVATE_KEY,
+    );
+    const store = createDurableObjectStore(env.PAYMENT_STORE);
+
+    const mppx = Mppx.create({
+      secretKey: env.MPP_SECRET_KEY,
+      account: settlementAccount,
+      chainId: megaethTestnet.id,
+      currency: env.MEGAETH_PAYMENT_TOKEN_ADDRESS,
+      rpcUrls: {
+        [megaethTestnet.id]: env.MEGAETH_RPC_URL,
+      },
+      recipient: settlementAccount.address,
+      methods: [
+        megaeth.charge({
+          store,
+          submissionMode: "realtime",
+        }),
+      ],
+    });
+
+    const result = await mppx.megaeth.charge({
+      amount: "100000",
+      description: "Worker paid route",
+    })(request);
+
+    if (result.status === 402) {
+      return result.challenge;
+    }
+
+    return result.withReceipt(Response.json({ ok: true }));
+  },
+};
+```
+
+The repository includes the full proof path:
+
+- Durable Object store adapter: [demo/worker/src/store.ts](demo/worker/src/store.ts)
+- Worker runtime: [demo/worker/src/index.ts](demo/worker/src/index.ts)
+- Worker setup guide: [demo/README.md](demo/README.md)
+
 ### Explicit Testnet Charge Setup
 
 When you want readability over magic, use the exported chain objects:

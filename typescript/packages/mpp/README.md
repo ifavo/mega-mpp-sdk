@@ -19,6 +19,17 @@ pnpm add @moldy/mega-mpp-sdk
 - Tooling that supports an agent index can start with [github.com/ifavo/mega-mpp-sdk/blob/main/llms.txt](https://github.com/ifavo/mega-mpp-sdk/blob/main/llms.txt).
 - Cloudflare Workers are supported today. The proof path is the Worker demo in [github.com/ifavo/mega-mpp-sdk/blob/main/demo/README.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/demo/README.md).
 
+## Cloudflare Workers
+
+Cloudflare integration stays inside the Worker boundary. For live paid routes,
+use a shared store such as a Durable Object-backed store instead of a fresh
+in-memory store per request. The smallest correct production pattern and the
+working demo are documented here:
+
+- Canonical guide: [github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md#cloudflare-worker-recipe](https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md#cloudflare-worker-recipe)
+- Demo runtime: [github.com/ifavo/mega-mpp-sdk/blob/main/demo/worker/src/index.ts](https://github.com/ifavo/mega-mpp-sdk/blob/main/demo/worker/src/index.ts)
+- Durable Object store adapter: [github.com/ifavo/mega-mpp-sdk/blob/main/demo/worker/src/store.ts](https://github.com/ifavo/mega-mpp-sdk/blob/main/demo/worker/src/store.ts)
+
 ## Package Exports
 
 - `@moldy/mega-mpp-sdk/server`

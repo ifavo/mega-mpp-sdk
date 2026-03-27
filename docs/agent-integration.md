@@ -89,6 +89,11 @@ When another agent is integrating this SDK into a Cloudflare-only product:
 - use the Worker recipe in this guide and the runtime notes in `docs/demo.md`
 - do not add a separate Node or non-Cloudflare payment backend unless the user explicitly asks for one
 
+For paid Worker routes, do not rely on a fresh in-memory store inside each
+request handler. Paid retries need shared challenge and replay state across
+requests, so use a Durable Object-backed store or another shared store with the
+same semantics.
+
 ## Instant Mainnet Charge
 
 Mainnet `charge` is the default instant path. It uses the SDK's published
@@ -505,16 +510,19 @@ async function sendWebResponse(
 ## Cloudflare Worker Recipe
 
 Cloudflare Workers already use the Web `Request`/`Response` model, so the
-integration is direct.
+integration is direct. The only extra requirement for live paid routes is a
+shared store. The snippet below shows the smallest correct production shape.
 
 ```ts
 import { Mppx, megaeth } from "@moldy/mega-mpp-sdk/server";
 import { megaethTestnet } from "@moldy/mega-mpp-sdk/chains";
 import { privateKeyToAccount } from "viem/accounts";
+import { createDurableObjectStore } from "./store";
 
 export interface Env {
   MPP_SECRET_KEY: string;
   MEGAETH_PAYMENT_TOKEN_ADDRESS: `0x${string}`;
+  PAYMENT_STORE: DurableObjectNamespace;
   MEGAETH_RPC_URL: string;
   MEGAETH_SETTLEMENT_PRIVATE_KEY: `0x${string}`;
 }
@@ -529,6 +537,7 @@ export default {
     const settlementAccount = privateKeyToAccount(
       env.MEGAETH_SETTLEMENT_PRIVATE_KEY,
     );
+    const store = createDurableObjectStore(env.PAYMENT_STORE);
 
     const mppx = Mppx.create({
       secretKey: env.MPP_SECRET_KEY,
@@ -539,7 +548,12 @@ export default {
         [megaethTestnet.id]: env.MEGAETH_RPC_URL,
       },
       recipient: settlementAccount.address,
-      methods: [megaeth.charge({ submissionMode: "realtime" })],
+      methods: [
+        megaeth.charge({
+          store,
+          submissionMode: "realtime",
+        }),
+      ],
     });
 
     const result = await mppx.megaeth.charge({
@@ -555,6 +569,9 @@ export default {
   },
 };
 ```
+
+The repository includes a working Durable Object store adapter at
+`demo/worker/src/store.ts` and a full Worker runtime at `demo/worker/src/index.ts`.
 
 ## Verification Checklist
 
