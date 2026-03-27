@@ -17,6 +17,7 @@ pnpm add @moldy/mega-mpp-sdk
 
 - Coding agents should start with [github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md).
 - Tooling that supports an agent index can start with [github.com/ifavo/mega-mpp-sdk/blob/main/llms.txt](https://github.com/ifavo/mega-mpp-sdk/blob/main/llms.txt).
+- Cloudflare Workers are supported today. The proof path is the Worker demo in [github.com/ifavo/mega-mpp-sdk/blob/main/demo/README.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/demo/README.md).
 
 ## Package Exports
 

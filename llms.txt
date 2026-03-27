@@ -9,6 +9,8 @@ Default integration path:
 - Use `charge` unless the caller explicitly needs a reusable funded channel.
 - Use `session` only when the caller wants repeated requests against one funded escrow channel.
 - Keep `chainId` and `recipient` explicit. Do not guess network or payee values.
+- This SDK already works in Cloudflare Workers. The repository includes a Worker demo under `demo/worker`, and that demo is the proof path to follow for Cloudflare-only integrations.
+- If an integration target is Cloudflare-only, keep the payment backend inside the Cloudflare boundary instead of introducing a separate non-Cloudflare server.
 - Use only the public package entrypoints:
   - `@moldy/mega-mpp-sdk/server`
   - `@moldy/mega-mpp-sdk/client`
@@ -24,6 +26,7 @@ Default integration path:
 
 Reference docs:
 
+- Canonical Cloudflare-compatible demo: https://github.com/ifavo/mega-mpp-sdk/blob/main/demo/README.md
 - Charge reference: https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/methods/charge.md
 - Session reference: https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/methods/session.md
 - Demo and runtime guide: https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/demo.md

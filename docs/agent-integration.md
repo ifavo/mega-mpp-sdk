@@ -5,6 +5,11 @@ This is the canonical integration guide for coding agents.
 Use this page before reading the other docs. It is self-contained and optimized
 for copy-paste integration work against the real public SDK surface.
 
+The SDK already runs in Cloudflare Workers. The repository includes a Worker
+demo under `demo/worker`, and that demo proves the supported Cloudflare path.
+If the target system is Cloudflare-only, keep the payment backend inside the
+Cloudflare boundary instead of adding a separate non-Cloudflare server.
+
 ## Agent Rules
 
 1. Start with `charge`. Only use `session` when the caller explicitly needs a reusable funded channel.
@@ -16,6 +21,7 @@ for copy-paste integration work against the real public SDK surface.
 4. Set `submissionMode` explicitly when the flow broadcasts a transaction.
 5. Keep the settlement wallet and `recipient` aligned for server-broadcast `charge` and all `session` flows.
 6. Do not invent a mainnet session escrow address. Mainnet `session` requires a deployed or user-provided escrow contract.
+7. Cloudflare Workers are a supported runtime. Prefer the Worker recipe and the `demo/worker` implementation when the integration target already lives on Cloudflare.
 
 ## Choose the Flow
 
@@ -64,6 +70,24 @@ Use:
 - `megaeth.charge(...)` for one-shot payments
 - `megaeth.session(...)` for reusable escrow-backed channels
 - `megaethMainnet` / `megaethTestnet` for explicit chain selection
+
+## Cloudflare Compatibility
+
+Cloudflare Workers are a first-class supported runtime for this SDK.
+
+The repository already proves that path:
+
+- `demo/worker` runs the payment API inside a Cloudflare Worker
+- `demo/server` and `demo/worker` expose the same API routes
+- the Worker demo keeps replay-sensitive charge and session state in a Durable Object
+- the Worker demo serves the SPA and API from one origin without requiring a separate non-Cloudflare backend
+
+When another agent is integrating this SDK into a Cloudflare-only product:
+
+- keep the payment routes in the Worker
+- keep replay and session state in Cloudflare storage primitives such as Durable Objects
+- use the Worker recipe in this guide and the runtime notes in `docs/demo.md`
+- do not add a separate Node or non-Cloudflare payment backend unless the user explicitly asks for one
 
 ## Instant Mainnet Charge
 
@@ -567,4 +591,5 @@ export default {
 - Charge reference: [methods/charge.md](methods/charge.md)
 - Session reference: [methods/session.md](methods/session.md)
 - Runtime and demo guide: [demo.md](demo.md)
+- Cloudflare demo workspace: [../demo/README.md](../demo/README.md)
 - Human onboarding path: [getting-started.md](getting-started.md)

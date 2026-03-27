@@ -39,6 +39,7 @@ pnpm add @moldy/mega-mpp-sdk
 
 - Coding agents should start with [docs/agent-integration.md](docs/agent-integration.md).
 - Tooling that supports an agent index can start with [llms.txt](llms.txt).
+- Cloudflare Workers are supported today. The proof path is the Worker demo in [demo/README.md](demo/README.md).
 
 ## Quick Start
 
