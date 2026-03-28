@@ -1,6 +1,6 @@
 {
   "name": "@moldy/mega-mpp-sdk",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "MegaETH payment method for the Machine Payments Protocol.",
   "license": "Unlicense",
   "repository": {
