@@ -1,6 +1,7 @@
 import { Errors, Receipt, Method } from "mppx";
 import { Store } from "mppx/server";
 import {
+  call,
   getTransaction,
   getTransactionReceipt,
   readContract,
@@ -10,6 +11,8 @@ import {
   type Account,
   type Address,
   type PublicClient,
+  type TransactionReceipt,
+  type WalletClient,
 } from "viem";
 
 import { ERC20_ABI } from "../abi.js";
@@ -17,7 +20,7 @@ import { DEFAULT_USDM, PERMIT2_ADDRESS } from "../constants.js";
 import * as Methods from "../Methods.js";
 import {
   resolveAccount,
-  resolveChainId,
+  resolveChargeChainId,
   resolvePublicClient,
   resolveWalletClient,
   type WalletClientResolver,
@@ -79,6 +82,7 @@ export function charge(
         const chainId = resolveRequestChainId({
           chainId:
             request.methodDetails.chainId ?? normalizedParameters.chainId,
+          testnet: request.methodDetails.testnet,
         });
         const resolvedCurrency = resolveRequestAddress({
           configured: configuredCurrency,
@@ -98,6 +102,7 @@ export function charge(
           methodDetails: {
             ...request.methodDetails,
             chainId,
+            ...(request.methodDetails.testnet ? { testnet: true } : {}),
             ...(normalizedParameters.feePayer !== undefined
               ? { feePayer: normalizedParameters.feePayer }
               : {}),
@@ -113,7 +118,10 @@ export function charge(
       async verify({ credential }) {
         const challenge = credential.challenge.request;
         const challengeId = credential.challenge.id;
-        const chainId = resolveCredentialChainId(challenge.methodDetails);
+        const chainId = resolveCredentialChainId(
+          challenge.methodDetails,
+          challengeId,
+        );
         const publicClient = await resolvePublicClient(
           normalizedParameters,
           chainId,
@@ -123,9 +131,10 @@ export function charge(
           credential.challenge.expires &&
           new Date(credential.challenge.expires) < new Date()
         ) {
-          throw new Errors.PaymentExpiredError({
-            expires: credential.challenge.expires,
-          });
+          throw invalidChallenge(
+            challengeId,
+            "Request a fresh payment challenge before retrying because this challenge has expired",
+          );
         }
 
         try {
@@ -167,11 +176,8 @@ export function charge(
             throw error;
           }
 
-          if (error instanceof Permit2PayloadError) {
-            throw invalidPayload(error.message);
-          }
-
           if (
+            error instanceof Permit2PayloadError ||
             error instanceof Permit2ValidationError ||
             error instanceof Permit2VerificationError
           ) {
@@ -211,8 +217,13 @@ async function verifyHashCredential(parameters: {
   }
 
   if (challenge.methodDetails.feePayer) {
-    throw invalidPayload(
+    throw verificationFailed(
       "Use a Permit2 credential instead of a hash credential for this challenge because the server asked to sponsor gas",
+    );
+  }
+  if (challenge.methodDetails.splits?.length) {
+    throw verificationFailed(
+      'Use credentialMode "permit2" for split payments because PR 205 does not define a split transaction-hash credential flow.',
     );
   }
 
@@ -234,11 +245,17 @@ async function verifyHashCredential(parameters: {
   }
 
   const decoded = decodePermit2Transaction(transaction.input);
-  assertPermitPayloadMatchesRequest(decoded.payload, challenge);
+  assertPermitPayloadMatchesRequest(
+    {
+      type: "permit2",
+      authorizations: [decoded.authorization],
+    },
+    challenge,
+  );
 
   const owner = await recoverPermitOwner({
+    authorization: decoded.authorization,
     chainId,
-    payload: decoded.payload,
     permit2Address: getPermit2Address(challenge),
     spender: transaction.from,
   });
@@ -303,16 +320,10 @@ async function verifyPermitCredential(parameters: {
 
   const permit2Address = getPermit2Address(challenge);
   const plan = assertPermitPayloadMatchesRequest(payload, challenge);
-
-  if (BigInt(payload.permit.deadline) < BigInt(Math.floor(Date.now() / 1000))) {
-    throw verificationFailed(
-      "Use a Permit2 signature with a future deadline before retrying the payment",
-    );
-  }
-
-  const owner = await recoverPermitOwner({
+  assertFutureDeadlines(payload);
+  const owner = await recoverAuthorizationOwner({
+    authorizations: payload.authorizations,
     chainId,
-    payload,
     permit2Address,
     spender: challenge.recipient as Address,
   });
@@ -322,40 +333,250 @@ async function verifyPermitCredential(parameters: {
     owner,
     permit2Address,
     publicClient,
-    requiredAmount: plan.primaryAmount + plan.splitTotal,
+    requiredAmount: plan.totalAmount,
     token: challenge.currency as Address,
   });
 
-  const calldata = encodePermit2Calldata({
+  await simulateAuthorizations({
+    account: settlementAccount,
+    authorizations: payload.authorizations,
     owner,
-    payload,
+    permit2Address,
+    publicClient,
   });
 
-  const receipt = await submitTransaction({
+  const primaryReceipt = await settleAuthorizations({
     account: settlementAccount,
+    authorizations: payload.authorizations,
+    challengeId,
     chainId,
-    data: calldata,
+    owner,
+    permit2Address,
     publicClient,
     submissionMode: resolvedSubmissionMode,
-    to: permit2Address,
+    store,
     walletClient,
   });
-
-  if (receipt.status !== "success") {
-    throw verificationFailed(
-      "Retry with a Permit2 payload that simulates successfully on MegaETH before requesting the resource again",
-    );
-  }
-
-  await store.put(getChallengeStoreKey(challengeId), receipt.transactionHash);
+  await store.put(
+    getChallengeStoreKey(challengeId),
+    primaryReceipt.transactionHash,
+  );
 
   return Receipt.from({
     method: "megaeth",
-    reference: receipt.transactionHash,
+    reference: primaryReceipt.transactionHash,
     status: "success",
     timestamp: new Date().toISOString(),
     ...(challenge.externalId ? { externalId: challenge.externalId } : {}),
   });
+}
+
+function assertFutureDeadlines(payload: Methods.ChargePermit2Payload): void {
+  const now = BigInt(Math.floor(Date.now() / 1_000));
+
+  for (const [index, authorization] of payload.authorizations.entries()) {
+    const deadline = BigInt(authorization.permit.deadline);
+    if (deadline <= now) {
+      throw new Permit2VerificationError(
+        `Use a Permit2 payload with a future deadline for ${describeAuthorization(index)} before retrying the payment.`,
+      );
+    }
+  }
+}
+
+async function recoverAuthorizationOwner(parameters: {
+  authorizations: Methods.ChargePermitAuthorization[];
+  chainId: number;
+  permit2Address: Address;
+  spender: Address;
+}): Promise<Address> {
+  const [firstAuthorization, ...restAuthorizations] = parameters.authorizations;
+  if (!firstAuthorization) {
+    throw new Permit2VerificationError(
+      "Use at least one signed Permit2 authorization before retrying the payment.",
+    );
+  }
+
+  const owner = await recoverPermitOwner({
+    authorization: firstAuthorization,
+    chainId: parameters.chainId,
+    permit2Address: parameters.permit2Address,
+    spender: parameters.spender,
+  });
+
+  for (const [offset, authorization] of restAuthorizations.entries()) {
+    const recovered = await recoverPermitOwner({
+      authorization,
+      chainId: parameters.chainId,
+      permit2Address: parameters.permit2Address,
+      spender: parameters.spender,
+    });
+
+    if (getAddress(recovered) !== getAddress(owner)) {
+      throw new Permit2VerificationError(
+        `Sign every Permit2 authorization with the same owner wallet before retrying the payment. ${describeAuthorization(offset + 1)} was signed by a different address.`,
+      );
+    }
+  }
+
+  return owner;
+}
+
+async function simulateAuthorizations(parameters: {
+  account: Account;
+  authorizations: Methods.ChargePermitAuthorization[];
+  owner: Address;
+  permit2Address: Address;
+  publicClient: PublicClient;
+}): Promise<void> {
+  for (const [index, authorization] of parameters.authorizations.entries()) {
+    const data = encodePermit2Calldata({
+      authorization,
+      owner: parameters.owner,
+    });
+
+    try {
+      await call(parameters.publicClient, {
+        account: parameters.account,
+        data,
+        to: parameters.permit2Address,
+      });
+    } catch (error) {
+      throw new Permit2VerificationError(
+        `Correct ${describeAuthorization(index)} before retrying because the Permit2 settlement simulation failed: ${toReason(error)}.`,
+        { cause: error },
+      );
+    }
+  }
+}
+
+async function settleAuthorizations(parameters: {
+  account: Account;
+  authorizations: Methods.ChargePermitAuthorization[];
+  challengeId: string;
+  chainId: number;
+  owner: Address;
+  permit2Address: Address;
+  publicClient: PublicClient;
+  store: Store.Store;
+  submissionMode: SubmissionMode;
+  walletClient: WalletClient;
+}): Promise<TransactionReceipt> {
+  let primaryReceipt: TransactionReceipt | undefined;
+
+  for (const [index, authorization] of parameters.authorizations.entries()) {
+    const data = encodePermit2Calldata({
+      authorization,
+      owner: parameters.owner,
+    });
+
+    try {
+      const receipt = await submitTransaction({
+        account: parameters.account,
+        chainId: parameters.chainId,
+        data,
+        publicClient: parameters.publicClient,
+        submissionMode: parameters.submissionMode,
+        to: parameters.permit2Address,
+        walletClient: parameters.walletClient,
+      });
+
+      if (receipt.status !== "success") {
+        throw new Permit2VerificationError(
+          `Retry after ${describeAuthorization(index)} settles successfully on-chain.`,
+        );
+      }
+
+      if (!primaryReceipt) {
+        primaryReceipt = receipt;
+      }
+    } catch (error) {
+      if (index === 0) {
+        throw new Permit2VerificationError(
+          `Retry after the primary transfer settles successfully on-chain: ${toReason(error)}.`,
+          { cause: error },
+        );
+      }
+
+      await recordSplitFailure({
+        authorization,
+        challengeId: parameters.challengeId,
+        index,
+        reason: toReason(error),
+        store: parameters.store,
+      });
+    }
+  }
+
+  if (!primaryReceipt) {
+    throw new Permit2VerificationError(
+      "Retry after the primary transfer settles successfully on-chain.",
+    );
+  }
+
+  return primaryReceipt;
+}
+
+async function recordSplitFailure(parameters: {
+  authorization: Methods.ChargePermitAuthorization;
+  challengeId: string;
+  index: number;
+  reason: string;
+  store: Store.Store;
+}): Promise<void> {
+  const key = getSplitFailureStoreKey(parameters.challengeId);
+  const currentValue = await parameters.store.get(key);
+  const failures = parseSplitFailureDiagnostics(currentValue);
+  const diagnostic = {
+    reason: normalizeReason(parameters.reason),
+    recipient: getAddress(parameters.authorization.witness.transferDetails.to),
+    requestedAmount:
+      parameters.authorization.witness.transferDetails.requestedAmount,
+    transferIndex: parameters.index,
+  };
+
+  failures.push(diagnostic);
+  await parameters.store.put(key, JSON.stringify(failures));
+  console.error(
+    "[megaeth/charge] Split settlement failed after primary success",
+    {
+      ...diagnostic,
+      challengeId: parameters.challengeId,
+    },
+  );
+}
+
+function parseSplitFailureDiagnostics(value: unknown): Array<{
+  reason: string;
+  recipient: Address;
+  requestedAmount: string;
+  transferIndex: number;
+}> {
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? (parsed as Array<{
+          reason: string;
+          recipient: Address;
+          requestedAmount: string;
+          transferIndex: number;
+        }>)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function describeAuthorization(index: number): string {
+  if (index === 0) {
+    return "the primary transfer";
+  }
+
+  return `split transfer ${index}`;
 }
 
 async function assertAllowanceAndBalance(parameters: {
@@ -405,7 +626,7 @@ function validateSource(
 
   const parsed = parseDidPkhSource(source);
   if (!parsed) {
-    throw invalidPayload(
+    throw verificationFailed(
       "Use a did:pkh source identifier when supplying the optional source field",
     );
   }
@@ -434,6 +655,10 @@ async function assertChallengeAvailable(
 
 function getChallengeStoreKey(challengeId: string): string {
   return `megaeth:charge:challenge:${challengeId}`;
+}
+
+function getSplitFailureStoreKey(challengeId: string): string {
+  return `megaeth:charge:split-failure:${challengeId}`;
 }
 
 function getVerificationLockKeys(parameters: {
@@ -471,12 +696,6 @@ function invalidChallenge(
 ): Errors.InvalidChallengeError {
   return new Errors.InvalidChallengeError({
     id: challengeId,
-    reason: normalizeReason(reason),
-  });
-}
-
-function invalidPayload(reason: string): Errors.InvalidPayloadError {
-  return new Errors.InvalidPayloadError({
     reason: normalizeReason(reason),
   });
 }
@@ -530,21 +749,26 @@ function resolveRequestAddress(parameters: {
 
 function resolveRequestChainId(parameters: {
   chainId?: number | undefined;
+  testnet?: boolean | undefined;
 }): number {
   try {
-    return resolveChainId(parameters);
+    return resolveChargeChainId(parameters);
   } catch (error) {
     throw badRequest(toReason(error));
   }
 }
 
-function resolveCredentialChainId(parameters: {
-  chainId?: number | undefined;
-}): number {
+function resolveCredentialChainId(
+  parameters: {
+    chainId?: number | undefined;
+    testnet?: boolean | undefined;
+  },
+  challengeId: string,
+): number {
   try {
-    return resolveChainId(parameters);
+    return resolveChargeChainId(parameters);
   } catch (error) {
-    throw invalidPayload(toReason(error));
+    throw invalidChallenge(challengeId, toReason(error));
   }
 }
 
