@@ -351,6 +351,84 @@ describe("megaeth charge integration", () => {
     expect(splitBalance).toBe(100n);
   });
 
+  it("verifies a transaction-hash split payment after the payer broadcasts the batch Permit2 transaction", async () => {
+    const context = requireTestContext();
+    const clientMethod = createIntegrationClientMethod(context, {
+      credentialMode: "hash",
+    });
+    const serverMethod = createIntegrationServerMethod(context, {
+      account: undefined,
+      publicClient: context.publicClient,
+      rpcUrls: undefined,
+      splits: [
+        {
+          amount: "100",
+          memo: "platform fee",
+          recipient: context.splitAddress,
+        },
+      ],
+      walletClient: undefined,
+    });
+
+    const challenge = await issueChallenge(
+      serverMethod,
+      context.tokenAddress,
+      context.wallets.recipient.account.address,
+      {
+        chainId: megaethTestnet.id,
+        permit2Address: context.permit2Address,
+        splits: [
+          {
+            amount: "100",
+            memo: "platform fee",
+            recipient: context.splitAddress,
+          },
+        ],
+      },
+    );
+
+    const credential = deserializeChargeCredential(
+      await clientMethod.createCredential({ challenge }),
+    );
+    const transactionHash = (
+      credential.payload as SharedMethods.ChargeHashPayload
+    ).hash as `0x${string}`;
+    const transaction = await getTransaction(context.publicClient, {
+      hash: transactionHash,
+    });
+
+    expect(
+      getAddress(
+        transaction.to ?? "0x0000000000000000000000000000000000000000",
+      ),
+    ).toBe(getAddress(context.permit2Address));
+    expect(transaction.input.slice(0, 10)).toBe("0xfe8ec1a7");
+
+    const receipt = await serverMethod.verify({
+      credential,
+      request: challenge.request,
+    });
+
+    const [recipientBalance, splitBalance] = await Promise.all([
+      readContract(context.publicClient, {
+        abi: context.contracts.mockErc20.abi,
+        address: context.tokenAddress,
+        functionName: "balanceOf",
+        args: [context.wallets.recipient.account.address],
+      }),
+      readContract(context.publicClient, {
+        abi: context.contracts.mockErc20.abi,
+        address: context.tokenAddress,
+        functionName: "balanceOf",
+        args: [context.splitAddress],
+      }),
+    ]);
+
+    expect(receipt.reference).toBe(transactionHash);
+    expect(recipientBalance).toBe(900n);
+    expect(splitBalance).toBe(100n);
+  });
+
   it("rejects a mutated payload that changes the requested amount", async () => {
     const context = requireTestContext();
     const clientMethod = createIntegrationClientMethod(context);

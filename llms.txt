@@ -21,7 +21,7 @@ Default integration path:
   - Testnet: chainId `6343`, RPC `https://carrot.megaeth.com/rpc`, charge token USDC `0x75139a9559c9cd1ad69b7e239c216151d2c81e6f`
   - Permit2: `0x000000000022D473030F116dDEE9F6B43aC78BA3`
   - Published testnet session escrow: `0xD83A68408539868e5f48D0E93537f56afBB9d512`
-- Set `submissionMode` explicitly when the flow broadcasts a transaction.
+- Omit `submissionMode` to use `realtime`, or set it explicitly when a charge flow needs `sync` or `sendAndWait`.
 - Keep the settlement wallet and `recipient` aligned for server-broadcast `charge` and all `session` flows.
 - Mainnet `session` requires a user-provided or freshly deployed escrow contract. Do not assume a published mainnet escrow address exists.
 

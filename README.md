@@ -64,11 +64,7 @@ const mppx = Mppx.create({
   account: settlementAccount, // Signs server-side MegaETH transactions when this flow broadcasts.
   chainId: megaethMainnet.id, // Makes the target network explicit so the SDK never guesses.
   recipient: settlementAccount.address, // Sets who receives the payment when the charge settles.
-  methods: [
-    megaeth.charge({
-      submissionMode: "realtime", // Uses MegaETH's realtime submission path when the RPC supports it.
-    }),
-  ],
+  methods: [megaeth.charge()], // Defaults broadcast charge flows to MegaETH realtime submission.
 });
 
 const result = await mppx.megaeth.charge({
@@ -92,7 +88,7 @@ For the quick charge path:
 - `megaeth.charge({ currency })`: optional and defaults to mainnet USDm.
 - `megaeth.charge({ permit2Address })`: optional and defaults to the canonical Permit2 contract.
 - `recipient` and `methodDetails.chainId`: optional on the route request when you already set `recipient` and `chainId` in `Mppx.create(...)`, as this example does.
-- `megaeth.charge({ submissionMode })`: optional to pass, but it has no automatic SDK default. Set `sync`, `realtime`, or `sendAndWait` before using a broadcast flow.
+- `megaeth.charge({ submissionMode })`: optional. Omit it to use `realtime`, or set `sync`, `realtime`, or `sendAndWait` explicitly.
 
 ### Quick Cloudflare Worker
 

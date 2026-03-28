@@ -1,5 +1,8 @@
 export type SubmissionMode = "sync" | "realtime" | "sendAndWait";
 
+export const defaultChargeSubmissionMode =
+  "realtime" as const satisfies SubmissionMode;
+
 export const submissionModes = [
   "sync",
   "realtime",

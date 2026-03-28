@@ -52,7 +52,7 @@ const mppx = Mppx.create({
   account: settlementAccount,
   chainId: megaethMainnet.id,
   recipient: settlementAccount.address,
-  methods: [megaeth.charge({ submissionMode: "realtime" })],
+  methods: [megaeth.charge()],
 });
 ```
 

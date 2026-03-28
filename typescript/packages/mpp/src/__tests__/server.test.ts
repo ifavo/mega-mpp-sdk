@@ -1,17 +1,21 @@
 import { Errors } from "mppx";
 import { Store } from "mppx/server";
 import type { Address } from "viem";
-import { describe, expect, it } from "vitest";
+import type * as ViemActionsModule from "viem/actions";
+import { readContract } from "viem/actions";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { megaethTestnet } from "../constants.js";
 import { charge as clientCharge } from "../client/Charge.js";
 import { charge as serverCharge } from "../server/Charge.js";
+import { submitTransaction } from "../utils/rpc.js";
 import {
   capturePaymentError,
   createChallenge,
   createHashCredential,
   createLocalWalletClient,
   createStaticPublicClient,
+  createTransactionReceipt,
   deserializeChargeCredential,
   payer,
   permit2Address,
@@ -19,7 +23,75 @@ import {
   tokenAddress,
 } from "./fixtures/chargeTestkit.js";
 
+vi.mock("../utils/rpc.js", () => ({
+  submitTransaction: vi.fn(),
+}));
+
+vi.mock("viem/actions", async () => {
+  const actual =
+    await vi.importActual<typeof ViemActionsModule>("viem/actions");
+
+  return {
+    ...actual,
+    readContract: vi.fn(),
+  };
+});
+
+const mockedReadContract = vi.mocked(readContract);
+const mockedSubmitTransaction = vi.mocked(submitTransaction);
+
 describe("megaeth charge server errors", () => {
+  beforeEach(() => {
+    mockedReadContract.mockReset();
+    mockedSubmitTransaction.mockReset();
+  });
+
+  it("defaults server-broadcast Permit2 settlement to realtime submission", async () => {
+    const hash =
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const challenge = createChallenge({
+      secretKey: "server-test-secret",
+      request: {
+        amount: "1000",
+        currency: tokenAddress,
+        methodDetails: {
+          chainId: megaethTestnet.id,
+          permit2Address,
+        },
+        recipient: payer.address,
+      },
+    });
+    const clientMethod = clientCharge({
+      account: payer,
+      walletClient: createLocalWalletClient(),
+    });
+    const credential = deserializeChargeCredential(
+      await clientMethod.createCredential({ challenge }),
+    );
+
+    mockedReadContract
+      .mockResolvedValueOnce(1_000n)
+      .mockResolvedValueOnce(1_000n);
+    mockedSubmitTransaction.mockResolvedValueOnce(
+      createTransactionReceipt(hash),
+    );
+
+    const receipt = await createServerMethod(Store.memory(), {
+      recipient: payer.address,
+      walletClient: createLocalWalletClient(),
+    }).verify({
+      credential,
+      request: challenge.request,
+    });
+
+    expect(receipt.reference).toBe(hash);
+    expect(mockedSubmitTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submissionMode: "realtime",
+      }),
+    );
+  });
+
   it("returns RFC 9457 problem details for expired challenges", async () => {
     const challenge = createChallenge({
       expires: new Date(Date.now() - 1_000).toISOString(),
@@ -96,35 +168,17 @@ describe("megaeth charge server errors", () => {
       /Permit2 credential instead of a hash credential/i,
     );
   });
-
-  it("requires an explicit submission mode for server-broadcast Permit2 settlement", async () => {
-    const challenge = createChallenge({
-      secretKey: "server-test-secret",
-    });
-    const clientMethod = clientCharge({
-      account: payer,
-      walletClient: createLocalWalletClient(),
-    });
-    const credential = deserializeChargeCredential(
-      await clientMethod.createCredential({ challenge }),
-    );
-
-    await expect(
-      createServerMethod(Store.memory()).verify({
-        credential,
-        request: challenge.request,
-      }),
-    ).rejects.toThrowError(
-      /Set submissionMode for the server-broadcast Permit2 flow to sync, realtime, or sendAndWait/i,
-    );
-  });
 });
 
-function createServerMethod(store: Store.Store) {
+function createServerMethod(
+  store: Store.Store,
+  overrides: Partial<Parameters<typeof serverCharge>[0]> = {},
+) {
   return serverCharge({
     currency: tokenAddress as Address,
     publicClient: createStaticPublicClient(),
     recipient: recipientAddress as Address,
     store,
+    ...overrides,
   });
 }

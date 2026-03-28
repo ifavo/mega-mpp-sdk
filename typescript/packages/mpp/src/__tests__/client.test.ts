@@ -95,7 +95,12 @@ describe("megaeth charge client progress", () => {
     expect(mockedSubmitTransaction).toHaveBeenCalledOnce();
   });
 
-  it("requires an explicit submission mode for transaction-hash credentials", async () => {
+  it("defaults transaction-hash credentials to realtime submission", async () => {
+    const hash =
+      "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    mockedSubmitTransaction.mockResolvedValueOnce(
+      createTransactionReceipt(hash),
+    );
     const method = clientCharge({
       account: payer,
       credentialMode: "hash",
@@ -103,12 +108,14 @@ describe("megaeth charge client progress", () => {
       walletClient: createLocalWalletClient(),
     });
 
-    await expect(
-      method.createCredential({
-        challenge: createChallenge(),
+    await method.createCredential({
+      challenge: createChallenge(),
+    });
+
+    expect(mockedSubmitTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submissionMode: "realtime",
       }),
-    ).rejects.toThrowError(
-      /Set submissionMode for the client-broadcast charge flow to sync, realtime, or sendAndWait/i,
     );
   });
 });

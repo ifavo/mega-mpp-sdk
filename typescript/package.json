@@ -17,6 +17,11 @@
     "format": "prettier --write \"packages/*/src/**/*.ts\" \"scripts/**/*.ts\"",
     "format:check": "prettier --check \"packages/*/src/**/*.ts\" \"scripts/**/*.ts\""
   },
+  "pnpm": {
+    "overrides": {
+      "path-to-regexp": "8.4.0"
+    }
+  },
   "devDependencies": {
     "@types/node": "^24.10.0",
     "@typescript-eslint/eslint-plugin": "^8.46.2",

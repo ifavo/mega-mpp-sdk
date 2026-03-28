@@ -113,8 +113,9 @@ Client and server charge factories both accept an optional `submissionMode` para
 - `realtime`: require `realtime_sendRawTransaction`
 - `sendAndWait`: send the raw transaction through the standard path and wait for the receipt by hash
 
-When the flow needs to broadcast a transaction, set `submissionMode`
-explicitly. The SDK no longer probes submission capabilities automatically.
+When the flow needs to broadcast a transaction, omitting `submissionMode`
+defaults to `realtime`. Set it explicitly when you need `sync` or
+`sendAndWait`. The SDK does not probe submission capabilities automatically.
 
 ## Receipt Behavior
 

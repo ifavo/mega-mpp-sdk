@@ -18,7 +18,7 @@ Cloudflare boundary instead of adding a separate non-Cloudflare server.
    - `@moldy/mega-mpp-sdk/client`
    - `@moldy/mega-mpp-sdk/chains`
 3. Keep `chainId` and `recipient` explicit.
-4. Set `submissionMode` explicitly when the flow broadcasts a transaction.
+4. Omit `submissionMode` to use `realtime`, or set it explicitly when a charge flow needs `sync` or `sendAndWait`.
 5. Keep the settlement wallet and `recipient` aligned for server-broadcast `charge` and all `session` flows.
 6. Do not invent a mainnet session escrow address. Mainnet `session` requires a deployed or user-provided escrow contract.
 7. Cloudflare Workers are a supported runtime. Prefer the Worker recipe and the `demo/worker` implementation when the integration target already lives on Cloudflare.
@@ -427,7 +427,7 @@ export const mppx = Mppx.create({
 Notes:
 
 - `charge` defaults to Permit2 credential mode. That is the simplest path when the server settles.
-- If the payer must broadcast the charge directly, set `credentialMode: "hash"` and keep `submissionMode` explicit.
+- If the payer must broadcast the charge directly, set `credentialMode: "hash"`. Omit `submissionMode` to use `realtime`, or set it explicitly when you need `sync` or `sendAndWait`.
 - `session` needs a `deposit` on the client unless the server challenge already includes `suggestedDeposit`.
 
 ## Express Server Recipe
@@ -590,8 +590,8 @@ The repository includes a working Durable Object store adapter at
   - Set `chainId` through `Mppx.create(...)` or include `methodDetails.chainId` in the request challenge before retrying.
 - Missing `recipient`:
   - Set `recipient` explicitly. The SDK does not infer the payee from the settlement wallet.
-- Missing `submissionMode`:
-  - Set `submissionMode` to `realtime`, `sync`, or `sendAndWait` before retrying a broadcast flow.
+- Realtime submission unsupported by the RPC:
+  - Set `submissionMode` to `sync` or `sendAndWait` before retrying the broadcast flow.
 - Charge hash mode used with server-sponsored gas:
   - Switch back to `credentialMode: "permit2"` before retrying because the server requested fee sponsorship.
 - Permit2 allowance missing:

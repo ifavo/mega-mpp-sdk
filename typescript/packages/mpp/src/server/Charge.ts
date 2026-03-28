@@ -35,6 +35,7 @@ import {
 import { submitTransaction } from "../utils/rpc.js";
 import { parseDidPkhSource } from "../utils/source.js";
 import {
+  defaultChargeSubmissionMode,
   parseSubmissionMode,
   type SubmissionMode,
 } from "../utils/submissionMode.js";
@@ -552,6 +553,7 @@ function requireSubmissionMode(
   variableName: string,
 ): SubmissionMode {
   return parseSubmissionMode(submissionMode, {
+    defaultMode: defaultChargeSubmissionMode,
     variableName,
   });
 }
