@@ -50,17 +50,6 @@ export function resolveChainId(parameters: {
   return parameters.chainId;
 }
 
-export function resolveChargeChainId(parameters: {
-  chainId?: number | undefined;
-  testnet?: boolean | undefined;
-}): number {
-  if (parameters.testnet) {
-    return MEGAETH_TESTNET_CHAIN_ID;
-  }
-
-  return parameters.chainId ?? MEGAETH_MAINNET_CHAIN_ID;
-}
-
 export function resolveChain(chainId: number): Chain {
   const chain = DEFAULT_CHAINS[chainId as keyof typeof DEFAULT_CHAINS];
   if (!chain) {

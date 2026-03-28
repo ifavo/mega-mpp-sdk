@@ -208,7 +208,10 @@ function createHashVerificationPublicClient(parameters: {
   });
   const typedData = buildTypedData({
     chainId: megaethTestnet.id,
-    authorization: unsignedPayload.authorizations[0]!,
+    payload: {
+      ...unsignedPayload,
+      signature: "0x" as Hex,
+    },
     permit2Address,
     spender: payer.address,
   });
@@ -220,8 +223,8 @@ function createHashVerificationPublicClient(parameters: {
         const signature = await payer.signTypedData(typedData);
         const calldata = encodePermit2Calldata({
           owner: payer.address,
-          authorization: {
-            ...unsignedPayload.authorizations[0]!,
+          payload: {
+            ...unsignedPayload,
             signature,
           },
         });

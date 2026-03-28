@@ -14,7 +14,6 @@ import { mnemonicToAccount } from "viem/accounts";
 import {
   deployContract,
   getTransaction,
-  getTransactionCount,
   readContract,
   waitForTransactionReceipt,
   writeContract,
@@ -291,7 +290,7 @@ describe("megaeth charge integration", () => {
     expect(recipientBalance).toBe(1000n);
   });
 
-  it("settles split payments with sequential Permit2 transfers and returns the primary receipt hash", async () => {
+  it("settles split payments with the draft batch Permit2 extension", async () => {
     const context = requireTestContext();
     const clientMethod = createIntegrationClientMethod(context);
     const serverMethod = createIntegrationServerMethod(context, {
@@ -328,11 +327,8 @@ describe("megaeth charge integration", () => {
       credential,
       request: challenge.request,
     });
-    const primaryTransaction = await getTransaction(context.publicClient, {
+    const settlementTransaction = await getTransaction(context.publicClient, {
       hash: receipt.reference as `0x${string}`,
-    });
-    const settlementNonce = await getTransactionCount(context.publicClient, {
-      address: context.wallets.recipient.account.address,
     });
 
     const [recipientBalance, splitBalance] = await Promise.all([
@@ -350,114 +346,12 @@ describe("megaeth charge integration", () => {
       }),
     ]);
 
-    expect(primaryTransaction.input.slice(0, 10)).toBe("0x137c29fe");
-    expect(
-      (credential.payload as SharedMethods.ChargePermit2Payload).authorizations,
-    ).toHaveLength(2);
-    expect(
-      BigInt(
-        (credential.payload as SharedMethods.ChargePermit2Payload)
-          .authorizations[1]!.permit.nonce,
-      ),
-    ).toBeGreaterThan(
-      BigInt(
-        (credential.payload as SharedMethods.ChargePermit2Payload)
-          .authorizations[0]!.permit.nonce,
-      ),
-    );
-    expect(settlementNonce).toBe(2);
+    expect(settlementTransaction.input.slice(0, 10)).toBe("0xfe8ec1a7");
     expect(recipientBalance).toBe(900n);
     expect(splitBalance).toBe(100n);
   });
 
-  it("returns the primary receipt and records diagnostics when a later split settlement fails", async () => {
-    const context = requireTestContext();
-    await waitForTransactionReceipt(context.publicClient, {
-      hash: await writeContract(context.wallets.deployer, {
-        abi: context.contracts.mockPermit2.abi,
-        account: context.wallets.deployer.account,
-        address: context.permit2Address,
-        args: [context.splitAddress],
-        chain: megaethTestnet,
-        functionName: "setFailRecipientAfterFirstSuccess",
-      }),
-    });
-
-    const clientMethod = createIntegrationClientMethod(context);
-    const serverMethod = createIntegrationServerMethod(context, {
-      splits: [
-        {
-          amount: "100",
-          memo: "platform fee",
-          recipient: context.splitAddress,
-        },
-      ],
-    });
-
-    const challenge = await issueChallenge(
-      serverMethod,
-      context.tokenAddress,
-      context.wallets.recipient.account.address,
-      {
-        chainId: megaethTestnet.id,
-        permit2Address: context.permit2Address,
-        splits: [
-          {
-            amount: "100",
-            memo: "platform fee",
-            recipient: context.splitAddress,
-          },
-        ],
-      },
-    );
-
-    const credential = deserializeChargeCredential(
-      await clientMethod.createCredential({ challenge }),
-    );
-    const receipt = await serverMethod.verify({
-      credential,
-      request: challenge.request,
-    });
-
-    const diagnosticsValue = await context.store.get(
-      `megaeth:charge:split-failure:${challenge.id}`,
-    );
-    const diagnostics = JSON.parse(
-      typeof diagnosticsValue === "string" ? diagnosticsValue : "[]",
-    ) as Array<{
-      reason: string;
-      recipient: Address;
-      requestedAmount: string;
-      transferIndex: number;
-    }>;
-    const [recipientBalance, splitBalance] = await Promise.all([
-      readContract(context.publicClient, {
-        abi: context.contracts.mockErc20.abi,
-        address: context.tokenAddress,
-        functionName: "balanceOf",
-        args: [context.wallets.recipient.account.address],
-      }),
-      readContract(context.publicClient, {
-        abi: context.contracts.mockErc20.abi,
-        address: context.tokenAddress,
-        functionName: "balanceOf",
-        args: [context.splitAddress],
-      }),
-    ]);
-
-    expect(receipt.reference).toMatch(/^0x[a-fA-F0-9]{64}$/);
-    expect(recipientBalance).toBe(900n);
-    expect(splitBalance).toBe(0n);
-    expect(diagnostics).toEqual([
-      expect.objectContaining({
-        recipient: context.splitAddress,
-        requestedAmount: "100",
-        transferIndex: 1,
-      }),
-    ]);
-  });
-
-  it("rejects split hash credentials because PR 205 leaves multi-hash settlement undefined", async () => {
+  it("verifies a transaction-hash split payment after the payer broadcasts the batch Permit2 transaction", async () => {
     const context = requireTestContext();
     const clientMethod = createIntegrationClientMethod(context, {
       credentialMode: "hash",
@@ -493,11 +387,46 @@ describe("megaeth charge integration", () => {
       },
     );
 
-    await expect(
-      clientMethod.createCredential({ challenge }),
-    ).rejects.toThrowError(
-      /does not define a split transaction-hash credential flow/i,
+    const credential = deserializeChargeCredential(
+      await clientMethod.createCredential({ challenge }),
     );
+    const transactionHash = (
+      credential.payload as SharedMethods.ChargeHashPayload
+    ).hash as `0x${string}`;
+    const transaction = await getTransaction(context.publicClient, {
+      hash: transactionHash,
+    });
+
+    expect(
+      getAddress(
+        transaction.to ?? "0x0000000000000000000000000000000000000000",
+      ),
+    ).toBe(getAddress(context.permit2Address));
+    expect(transaction.input.slice(0, 10)).toBe("0xfe8ec1a7");
+
+    const receipt = await serverMethod.verify({
+      credential,
+      request: challenge.request,
+    });
+
+    const [recipientBalance, splitBalance] = await Promise.all([
+      readContract(context.publicClient, {
+        abi: context.contracts.mockErc20.abi,
+        address: context.tokenAddress,
+        functionName: "balanceOf",
+        args: [context.wallets.recipient.account.address],
+      }),
+      readContract(context.publicClient, {
+        abi: context.contracts.mockErc20.abi,
+        address: context.tokenAddress,
+        functionName: "balanceOf",
+        args: [context.splitAddress],
+      }),
+    ]);
+
+    expect(receipt.reference).toBe(transactionHash);
+    expect(recipientBalance).toBe(900n);
+    expect(splitBalance).toBe(100n);
   });
 
   it("rejects a mutated payload that changes the requested amount", async () => {
@@ -518,26 +447,18 @@ describe("megaeth charge integration", () => {
     const credential = deserializeChargeCredential(
       await clientMethod.createCredential({ challenge }),
     );
-    const mutatedPayload: SharedMethods.ChargePermit2Payload = {
-      ...(credential.payload as SharedMethods.ChargePermit2Payload),
-      authorizations: [
-        {
-          ...(credential.payload as SharedMethods.ChargePermit2Payload)
-            .authorizations[0]!,
-          permit: {
-            ...(credential.payload as SharedMethods.ChargePermit2Payload)
-              .authorizations[0]!.permit,
-            permitted: {
-              amount: "999",
-              token: context.tokenAddress,
-            },
-          },
-        },
-      ],
-    };
     const mutated = Credential.from({
       ...credential,
-      payload: mutatedPayload,
+      payload: {
+        ...(credential.payload as SharedMethods.ChargePermit2Payload),
+        permit: {
+          ...(credential.payload as SharedMethods.ChargePermit2Payload).permit,
+          permitted: {
+            amount: "999",
+            token: context.tokenAddress,
+          },
+        },
+      },
     }) as ChargeCredential;
 
     await expect(

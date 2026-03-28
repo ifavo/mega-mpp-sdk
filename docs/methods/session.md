@@ -67,10 +67,7 @@ const result = await mppx.megaeth.session({
 - the payer or delegated signer signs cumulative EIP-712 vouchers
 - the server accepts vouchers, settles periodically, and closes cooperatively
 
-The default MegaETH HTTP transport writes `challengeId` into the raw
-`Payment-Receipt` header. Generic `mppx` receipt parsing still drops that field
-because the shared upstream receipt schema does not include it. Richer channel
-state still returns separately through the SDK and demo.
+The serialized `Payment-Receipt` header stays `mppx`-compatible in v1. Richer channel state is returned separately by the SDK and demo.
 
 ## Request Shape
 

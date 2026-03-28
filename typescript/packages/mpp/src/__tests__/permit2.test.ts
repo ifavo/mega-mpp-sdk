@@ -1,9 +1,13 @@
-import { Credential } from "mppx";
-import type { Address } from "viem";
+import { Credential, Receipt } from "mppx";
+import type { Address, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
 
-import type { ChargePermit2Payload, ChargeRequest } from "../Methods.js";
+import type {
+  ChargePermit2Payload,
+  ChargeReceipt,
+  ChargeRequest,
+} from "../Methods.js";
 import {
   assertPermitPayloadMatchesRequest,
   buildTypedData,
@@ -39,55 +43,43 @@ function createRequest(overrides?: Partial<ChargeRequest>): ChargeRequest {
   };
 }
 
-async function signPermitPayload(
-  request: ChargeRequest,
-  spender: Address,
-): Promise<ChargePermit2Payload> {
-  const unsignedPayload = createPermitPayload({
-    deadline: 1_900_000_000n,
-    nonce: 7n,
-    request,
-  });
-
-  return {
-    ...unsignedPayload,
-    authorizations: await Promise.all(
-      unsignedPayload.authorizations.map(async (authorization) => ({
-        ...authorization,
-        signature: await payer.signTypedData(
-          buildTypedData({
-            authorization,
-            chainId: 6343,
-            permit2Address: "0x3333333333333333333333333333333333333333",
-            spender,
-          }),
-        ),
-      })),
-    ),
-  };
-}
-
 describe("permit2 utilities", () => {
   it("creates a single-transfer permit payload that round-trips through owner recovery", async () => {
     const request = createRequest();
-    const payload = await signPermitPayload(
+    const unsignedPayload = createPermitPayload({
+      deadline: 1_900_000_000n,
+      nonce: 7n,
       request,
-      request.recipient as Address,
-    );
+    });
+
+    const typedData = buildTypedData({
+      chainId: 6343,
+      payload: {
+        ...unsignedPayload,
+        signature: "0x" as Hex,
+      },
+      permit2Address: "0x3333333333333333333333333333333333333333",
+      spender: request.recipient as Address,
+    });
+
+    const signature = await payer.signTypedData(typedData);
+    const payload: ChargePermit2Payload = {
+      ...unsignedPayload,
+      signature,
+    };
 
     const recovered = await recoverPermitOwner({
-      authorization: payload.authorizations[0]!,
       chainId: 6343,
+      payload,
       permit2Address: "0x3333333333333333333333333333333333333333",
       spender: request.recipient as Address,
     });
 
     expect(recovered).toBe(payer.address);
-    expect(payload.authorizations).toHaveLength(1);
     expect(splitSummary()).toBe("no splits");
   });
 
-  it("creates ordered single-transfer authorizations when splits are present", () => {
+  it("creates a batch transfer plan when splits are present", () => {
     const request = createRequest({
       methodDetails: {
         chainId: 6343,
@@ -113,45 +105,39 @@ describe("permit2 utilities", () => {
       request,
     });
 
+    expect(plan.isBatch).toBe(true);
     expect(plan.primaryAmount).toBe(850n);
     expect(plan.splitTotal).toBe(150n);
-    expect(payload.authorizations).toHaveLength(3);
-    expect(
-      payload.authorizations.map((authorization) => authorization.permit.nonce),
-    ).toEqual(["8", "9", "10"]);
-    expect(
-      payload.authorizations.map(
-        (authorization) => authorization.witness.transferDetails.to,
-      ),
-    ).toEqual([
-      request.recipient,
-      "0x4444444444444444444444444444444444444444",
-      "0x5555555555555555555555555555555555555555",
-    ]);
+    expect(Array.isArray(payload.permit.permitted)).toBe(true);
     expect(splitSummary(request.methodDetails.splits)).toBe("2 splits");
   });
 
-  it("encodes single-transfer calldata with the canonical Permit2 selector", async () => {
+  it("encodes single-transfer calldata with the canonical Permit2 selector", () => {
     const request = createRequest();
-    const payload = await signPermitPayload(
+    const unsignedPayload = createPermitPayload({
+      deadline: 1_900_000_000n,
+      nonce: 7n,
       request,
-      request.recipient as Address,
-    );
+    });
+    const payload: ChargePermit2Payload = {
+      ...unsignedPayload,
+      signature: "0x1234",
+    };
 
     const calldata = encodePermit2Calldata({
-      authorization: payload.authorizations[0]!,
       owner: payer.address,
+      payload,
     });
     const decoded = decodePermit2Transaction(calldata);
 
     expect(calldata.slice(0, 10)).toBe("0x137c29fe");
     expect(decoded).toEqual({
-      authorization: payload.authorizations[0],
       owner: payer.address,
+      payload,
     });
   });
 
-  it("uses the same single-transfer selector for split authorizations", async () => {
+  it("encodes batch-transfer calldata with the canonical Permit2 selector", () => {
     const request = createRequest({
       methodDetails: {
         chainId: 6343,
@@ -164,22 +150,27 @@ describe("permit2 utilities", () => {
         ],
       },
     });
-    const payload = await signPermitPayload(
+    const unsignedPayload = createPermitPayload({
+      deadline: 1_900_000_000n,
+      nonce: 8n,
       request,
-      request.recipient as Address,
-    );
-
-    const primaryCalldata = encodePermit2Calldata({
-      authorization: payload.authorizations[0]!,
-      owner: payer.address,
     });
-    const splitCalldata = encodePermit2Calldata({
-      authorization: payload.authorizations[1]!,
-      owner: payer.address,
-    });
+    const payload: ChargePermit2Payload = {
+      ...unsignedPayload,
+      signature: "0x1234",
+    };
 
-    expect(primaryCalldata.slice(0, 10)).toBe("0x137c29fe");
-    expect(splitCalldata.slice(0, 10)).toBe("0x137c29fe");
+    const calldata = encodePermit2Calldata({
+      owner: payer.address,
+      payload,
+    });
+    const decoded = decodePermit2Transaction(calldata);
+
+    expect(calldata.slice(0, 10)).toBe("0xfe8ec1a7");
+    expect(decoded).toEqual({
+      owner: payer.address,
+      payload,
+    });
   });
 
   it("rejects non-Permit2 calldata with a stable payload error", () => {
@@ -191,7 +182,7 @@ describe("permit2 utilities", () => {
     );
   });
 
-  it("rejects decoded Permit2 arguments that do not match the supported single-transfer shape", () => {
+  it("rejects decoded Permit2 arguments that do not match either supported transfer shape", () => {
     expect(() =>
       parseDecodedTransferArguments([
         {
@@ -235,12 +226,39 @@ describe("permit2 utilities", () => {
   });
 
   it("builds the canonical Permit2 witness type string stub", () => {
-    expect(getWitnessTypeString()).toBe(
+    const singlePayload = createPermitPayload({
+      deadline: 1_900_000_000n,
+      nonce: 9n,
+      request: createRequest(),
+    });
+    const batchPayload = createPermitPayload({
+      deadline: 1_900_000_000n,
+      nonce: 10n,
+      request: createRequest({
+        methodDetails: {
+          chainId: 6343,
+          permit2Address: "0x3333333333333333333333333333333333333333",
+          splits: [
+            {
+              amount: "100",
+              recipient: "0x4444444444444444444444444444444444444444",
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(
+      getWitnessTypeString({ ...singlePayload, signature: "0x1234" }),
+    ).toBe(
       "ChargeWitness witness)ChargeWitness(TransferDetails transferDetails)TokenPermissions(address token,uint256 amount)TransferDetails(address to,uint256 requestedAmount)",
+    );
+    expect(getWitnessTypeString({ ...batchPayload, signature: "0x1234" })).toBe(
+      "ChargeBatchWitness witness)ChargeBatchWitness(TransferDetails[] transferDetails)TokenPermissions(address token,uint256 amount)TransferDetails(address to,uint256 requestedAmount)",
     );
   });
 
-  it("rejects a mutated payload that changes the requested transfer ordering", async () => {
+  it("rejects a mutated payload that changes the requested transfer ordering", () => {
     const request = createRequest({
       methodDetails: {
         chainId: 6343,
@@ -253,27 +271,30 @@ describe("permit2 utilities", () => {
         ],
       },
     });
-    const payload = await signPermitPayload(
+
+    const payload = createPermitPayload({
+      deadline: 1_900_000_000n,
+      nonce: 9n,
       request,
-      request.recipient as Address,
-    );
+    });
 
     expect(() =>
       assertPermitPayloadMatchesRequest(
         {
           ...payload,
-          authorizations: [
-            payload.authorizations[0]!,
-            {
-              ...payload.authorizations[1]!,
-              witness: {
-                transferDetails: {
-                  requestedAmount: "100",
-                  to: request.recipient,
-                },
+          signature: "0x1234",
+          witness: {
+            transferDetails: [
+              {
+                requestedAmount: "900",
+                to: "0x4444444444444444444444444444444444444444",
               },
-            },
-          ],
+              {
+                requestedAmount: "100",
+                to: request.recipient,
+              },
+            ],
+          },
         },
         request,
       ),
@@ -312,5 +333,21 @@ describe("permit2 utilities", () => {
     const parsed = Credential.deserialize(credential);
     expect(parsed.challenge.id).toBe("challenge-1");
     expect(parsed.source).toBe(createDidPkhSource(6343, payer.address));
+  });
+
+  it("keeps serialized receipts compatible with the shared mppx header format", () => {
+    const receipt: ChargeReceipt = {
+      externalId: "ext-1",
+      method: "megaeth",
+      reference:
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      status: "success",
+      timestamp: "2026-03-25T10:15:00.000Z",
+    };
+
+    const encoded = Receipt.serialize(Receipt.from(receipt));
+    const parsed = Receipt.deserialize(encoded) as ChargeReceipt;
+
+    expect(parsed).toEqual(receipt);
   });
 });

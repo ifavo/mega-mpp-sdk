@@ -41,5 +41,5 @@ export const demoDescriptions = {
 
 export const demoDraftCaveats = [
   "Direct settlement signs the recipient as the spender because the draft spec does not yet expose a dedicated spender field.",
-  'Split payments use ordered Permit2 "authorizations[]" and settle sequentially. Hash mode stays disabled for split charges because PR 205 still lacks a multi-hash split flow.',
+  "Split payments use the SDK batch Permit2 extension while PR 205 remains open.",
 ] as const;

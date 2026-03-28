@@ -2,7 +2,7 @@ import { Errors } from "mppx";
 import { Store } from "mppx/server";
 import type { Address } from "viem";
 import type * as ViemActionsModule from "viem/actions";
-import { call, readContract } from "viem/actions";
+import { readContract } from "viem/actions";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { megaethTestnet } from "../constants.js";
@@ -33,18 +33,15 @@ vi.mock("viem/actions", async () => {
 
   return {
     ...actual,
-    call: vi.fn(),
     readContract: vi.fn(),
   };
 });
 
-const mockedCall = vi.mocked(call);
 const mockedReadContract = vi.mocked(readContract);
 const mockedSubmitTransaction = vi.mocked(submitTransaction);
 
 describe("megaeth charge server errors", () => {
   beforeEach(() => {
-    mockedCall.mockReset();
     mockedReadContract.mockReset();
     mockedSubmitTransaction.mockReset();
   });
@@ -75,9 +72,6 @@ describe("megaeth charge server errors", () => {
     mockedReadContract
       .mockResolvedValueOnce(1_000n)
       .mockResolvedValueOnce(1_000n);
-    mockedCall.mockResolvedValue({ data: "0x" } as Awaited<
-      ReturnType<typeof call>
-    >);
     mockedSubmitTransaction.mockResolvedValueOnce(
       createTransactionReceipt(hash),
     );
@@ -96,10 +90,9 @@ describe("megaeth charge server errors", () => {
         submissionMode: "realtime",
       }),
     );
-    expect(mockedCall).toHaveBeenCalledOnce();
   });
 
-  it("returns RFC 9457 invalid-challenge problem details for expired challenges", async () => {
+  it("returns RFC 9457 problem details for expired challenges", async () => {
     const challenge = createChallenge({
       expires: new Date(Date.now() - 1_000).toISOString(),
       secretKey: "server-test-secret",
@@ -111,12 +104,12 @@ describe("megaeth charge server errors", () => {
       }),
     );
 
-    expect(error).toBeInstanceOf(Errors.InvalidChallengeError);
+    expect(error).toBeInstanceOf(Errors.PaymentExpiredError);
     expect(error.toProblemDetails(challenge.id)).toMatchObject({
       challengeId: challenge.id,
       status: 402,
-      title: "Invalid Challenge",
-      type: "https://paymentauth.org/problems/invalid-challenge",
+      title: "Payment Expired",
+      type: "https://paymentauth.org/problems/payment-expired",
     });
   });
 
@@ -142,7 +135,7 @@ describe("megaeth charge server errors", () => {
     expect(error.message).toMatch(/fresh payment challenge/i);
   });
 
-  it("returns RFC 9457 verification-failed problem details for hash payloads on fee-sponsored challenges", async () => {
+  it("returns RFC 9457 problem details for hash payloads on fee-sponsored challenges", async () => {
     const challenge = createChallenge({
       secretKey: "server-test-secret",
       request: {
@@ -164,12 +157,12 @@ describe("megaeth charge server errors", () => {
       }),
     );
 
-    expect(error).toBeInstanceOf(Errors.VerificationFailedError);
+    expect(error).toBeInstanceOf(Errors.InvalidPayloadError);
     expect(error.toProblemDetails(challenge.id)).toMatchObject({
       challengeId: challenge.id,
       status: 402,
-      title: "Verification Failed",
-      type: "https://paymentauth.org/problems/verification-failed",
+      title: "Invalid Payload",
+      type: "https://paymentauth.org/problems/invalid-payload",
     });
     expect(error.message).toMatch(
       /Permit2 credential instead of a hash credential/i,

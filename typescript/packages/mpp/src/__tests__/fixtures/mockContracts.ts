@@ -113,12 +113,6 @@ contract MockPermit2 {
     }
 
     mapping(address => mapping(uint256 => bool)) public usedNonces;
-    address public failRecipientAfterFirstSuccess;
-    uint256 public successfulTransfers;
-
-    function setFailRecipientAfterFirstSuccess(address recipient) external {
-        failRecipientAfterFirstSuccess = recipient;
-    }
 
     function permitWitnessTransferFrom(
         PermitTransferFrom calldata permit,
@@ -138,21 +132,13 @@ contract MockPermit2 {
             "Use the exact requested amount before retrying the payment."
         );
         require(
-            !(
-                successfulTransfers > 0 &&
-                transferDetails.to == failRecipientAfterFirstSuccess
-            ),
-            "Retry after the split transfer settles successfully."
-        );
-        require(
             IERC20Like(permit.permitted.token).transferFrom(
                 owner,
                 transferDetails.to,
                 transferDetails.requestedAmount
             ),
-                "Retry after the payment token transfer succeeds."
-            );
-        successfulTransfers += 1;
+            "Retry after the payment token transfer succeeds."
+        );
     }
 
     function permitWitnessTransferFrom(

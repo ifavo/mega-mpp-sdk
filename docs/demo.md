@@ -76,11 +76,9 @@ The UI runs at `http://localhost:5173`.
 
 - `MEGAETH_SUBMISSION_MODE` feeds directly into the SDK `submissionMode` and must be `sync`, `realtime`, or `sendAndWait`.
 - `mode=permit2` uses the server-broadcast charge runtime.
-- `mode=hash` uses the client-broadcast verification runtime for unsplit charge requests.
-- Split payments are driven per request through `methodDetails.splits` and settle sequentially, primary transfer first.
-- The demo keeps `mode=permit2` for split routes because `credentialMode: "hash"` is rejected for split charges.
+- `mode=hash` uses the client-broadcast verification runtime.
+- Split payments are driven per request through `methodDetails.splits`.
 - The browser charge UI checks the connected wallet's Permit2 allowance and can prompt for a one-time infinite approval when the current token allowance is missing or finite.
-- The default MegaETH HTTP transport writes `challengeId` into the raw `Payment-Receipt` header, but generic `mppx` receipt parsing still drops that field.
 
 ### Session
 
