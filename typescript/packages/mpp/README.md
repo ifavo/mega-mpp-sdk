@@ -56,6 +56,12 @@ const mppx = Mppx.create({
 });
 ```
 
+## Charge Notes
+
+- Split `charge` requests use ordered Permit2 `authorizations[]` and settle sequentially, primary transfer first.
+- `credentialMode: "hash"` is supported only for unsplit charge requests.
+- The default MegaETH HTTP transport writes `challengeId` into the raw `Payment-Receipt` header, while generic `mppx` receipt parsing still drops that field.
+
 ## Docs
 
 - Coding agents: [github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md](https://github.com/ifavo/mega-mpp-sdk/blob/main/docs/agent-integration.md)

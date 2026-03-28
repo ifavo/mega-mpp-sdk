@@ -1,6 +1,7 @@
 import { Method, z } from "mppx";
 
 import { baseUnitIntegerString } from "./utils/baseUnit.js";
+import { MAX_SPLITS } from "./constants.js";
 
 const tokenPermissionSchema = z.object({
   token: z.address(),
@@ -15,7 +16,16 @@ const transferDetailSchema = z.object({
 export const splitSchema = z.object({
   recipient: z.address(),
   amount: baseUnitIntegerString("split amount"),
-  memo: z.optional(z.string()),
+  memo: z.optional(
+    z
+      .string()
+      .check(
+        z.maxLength(
+          256,
+          "Use a split memo no longer than 256 characters before retrying the payment.",
+        ),
+      ),
+  ),
 });
 
 const permitSingleSchema = z.object({
@@ -24,18 +34,14 @@ const permitSingleSchema = z.object({
   deadline: baseUnitIntegerString("deadline"),
 });
 
-const permitBatchSchema = z.object({
-  permitted: z.array(tokenPermissionSchema),
-  nonce: baseUnitIntegerString("nonce"),
-  deadline: baseUnitIntegerString("deadline"),
-});
-
 const witnessSingleSchema = z.object({
   transferDetails: transferDetailSchema,
 });
 
-const witnessBatchSchema = z.object({
-  transferDetails: z.array(transferDetailSchema),
+const permitAuthorizationSchema = z.object({
+  permit: permitSingleSchema,
+  witness: witnessSingleSchema,
+  signature: z.signature(),
 });
 
 export const sessionOpenPayloadSchema = z.object({
@@ -81,9 +87,14 @@ export const charge = Method.from({
       payload: z.discriminatedUnion("type", [
         z.object({
           type: z.literal("permit2"),
-          permit: z.union([permitSingleSchema, permitBatchSchema]),
-          witness: z.union([witnessSingleSchema, witnessBatchSchema]),
-          signature: z.signature(),
+          authorizations: z
+            .array(permitAuthorizationSchema)
+            .check(
+              z.minLength(
+                1,
+                "Use at least one signed Permit2 authorization before retrying the payment.",
+              ),
+            ),
         }),
         z.object({
           type: z.literal("hash"),
@@ -99,9 +110,25 @@ export const charge = Method.from({
       recipient: z.address(),
       methodDetails: z.object({
         chainId: z.optional(z.number()),
+        testnet: z.optional(z.boolean()),
         feePayer: z.optional(z.boolean()),
         permit2Address: z.optional(z.address()),
-        splits: z.optional(z.array(splitSchema)),
+        splits: z.optional(
+          z
+            .array(splitSchema)
+            .check(
+              z.minLength(
+                1,
+                "Use at least one split recipient before retrying the payment.",
+              ),
+            )
+            .check(
+              z.maxLength(
+                MAX_SPLITS,
+                `Use at most ${MAX_SPLITS} split recipients in one payment request.`,
+              ),
+            ),
+        ),
       }),
     }),
   },
@@ -150,9 +177,10 @@ export type ChargeRequest = z.output<typeof charge.schema.request>;
 export type ChargeSplit = z.output<typeof splitSchema>;
 export type TransferDetail = z.output<typeof transferDetailSchema>;
 export type PermitSinglePayload = z.output<typeof permitSingleSchema>;
-export type PermitBatchPayload = z.output<typeof permitBatchSchema>;
 export type TransferSingleWitness = z.output<typeof witnessSingleSchema>;
-export type TransferBatchWitness = z.output<typeof witnessBatchSchema>;
+export type ChargePermitAuthorization = z.output<
+  typeof permitAuthorizationSchema
+>;
 export type ChargePermit2Payload = Extract<
   z.output<typeof charge.schema.credential.payload>,
   { type: "permit2" }
@@ -165,6 +193,7 @@ export type ChargeCredentialPayload = z.output<
   typeof charge.schema.credential.payload
 >;
 export type ChargeReceipt = {
+  challengeId: string;
   method: "megaeth";
   reference: string;
   status: "success";

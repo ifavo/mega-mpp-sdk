@@ -2,11 +2,11 @@ export { charge, megaeth, session } from "./Methods.js";
 export type {
   ChargeCredentialPayload,
   ChargeHashPayload,
+  ChargePermitAuthorization,
   ChargePermit2Payload,
   ChargeReceipt,
   ChargeRequest,
   ChargeSplit,
-  PermitBatchPayload,
   PermitSinglePayload,
   SessionClosePayload,
   SessionCredentialPayload,
@@ -15,7 +15,6 @@ export type {
   SessionRequest,
   SessionTopUpPayload,
   SessionVoucherPayload,
-  TransferBatchWitness,
   TransferDetail,
   TransferSingleWitness,
 } from "./Methods.js";
