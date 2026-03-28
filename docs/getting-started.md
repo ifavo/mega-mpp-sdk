@@ -41,6 +41,7 @@ When the settlement wallet is also the payee, opt in visibly with `recipient: se
 
 - `currency`: mainnet USDm
 - `permit2Address`: canonical Permit2
+- `methodDetails.chainId`: `4326` unless `methodDetails.testnet` is `true`, which forces `6343`
 
 ## Flow Selection
 
@@ -180,7 +181,7 @@ const sessionMppx = Mppx.create({
 | Mode | When to use it | Broadcasts the transaction |
 | --- | --- | --- |
 | `permit2` | Server should sponsor gas or own the final settlement path | Server |
-| `hash` | Payer should broadcast directly and the server only verifies | Client |
+| `hash` | Payer should broadcast directly and the server only verifies unsplit payments | Client |
 
 ### Submission Mode
 
@@ -189,6 +190,13 @@ const sessionMppx = Mppx.create({
 | `realtime` | Best demo default | Shows MegaETH mini-block receipts when supported |
 | `sync` | Advanced only | Requires `eth_sendRawTransactionSync` support |
 | `sendAndWait` | Conservative fallback | Uses the standard send path plus receipt polling |
+
+Charge-specific notes:
+
+- Split charges are encoded as ordered Permit2 `authorizations[]` and settle sequentially, primary transfer first.
+- Split charge settlement is non-atomic. A later split can fail after the primary transfer succeeds.
+- `credentialMode: "hash"` is rejected for split requests because PR 205 does not yet define a multi-hash split receipt model.
+- The default MegaETH HTTP transport writes `challengeId` into the raw `Payment-Receipt` header, but generic `mppx` receipt parsing still drops that field.
 
 ## Charge Process Flows
 

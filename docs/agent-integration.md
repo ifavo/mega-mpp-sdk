@@ -427,7 +427,9 @@ export const mppx = Mppx.create({
 Notes:
 
 - `charge` defaults to Permit2 credential mode. That is the simplest path when the server settles.
-- If the payer must broadcast the charge directly, set `credentialMode: "hash"`. Omit `submissionMode` to use `realtime`, or set it explicitly when you need `sync` or `sendAndWait`.
+- If the payer must broadcast the charge directly, set `credentialMode: "hash"` only for unsplit charge requests. Omit `submissionMode` to use `realtime`, or set it explicitly when you need `sync` or `sendAndWait`.
+- Split charge requests use ordered Permit2 `authorizations[]` and settle sequentially, primary transfer first.
+- The default MegaETH HTTP transport writes `challengeId` into the raw `Payment-Receipt` header, while generic `mppx` receipt parsing still drops that field.
 - `session` needs a `deposit` on the client unless the server challenge already includes `suggestedDeposit`.
 
 ## Express Server Recipe
@@ -576,7 +578,7 @@ The repository includes a working Durable Object store adapter at
 ## Verification Checklist
 
 1. Confirm the server returns `402` with a payment challenge before the route is paid.
-2. Confirm the route returns your resource plus a `Payment-Receipt` header after payment succeeds.
+2. Confirm the route returns your resource plus a `Payment-Receipt` header after payment succeeds. If you need `challengeId`, read the raw header JSON instead of relying on generic `mppx` receipt parsing.
 3. Confirm the client wallet is connected to the same `chainId` as the challenge.
 4. Confirm the payer wallet has MegaETH gas plus the payment token balance.
 5. For `charge`, confirm the payer approved Permit2 once.
@@ -594,6 +596,8 @@ The repository includes a working Durable Object store adapter at
   - Set `submissionMode` to `sync` or `sendAndWait` before retrying the broadcast flow.
 - Charge hash mode used with server-sponsored gas:
   - Switch back to `credentialMode: "permit2"` before retrying because the server requested fee sponsorship.
+- Charge hash mode used with splits:
+  - Switch back to `credentialMode: "permit2"` before retrying because split charges now settle through multiple sequential Permit2 transfers.
 - Permit2 allowance missing:
   - Approve Permit2 for the payment token before retrying the first charge.
 - Session escrow missing:
