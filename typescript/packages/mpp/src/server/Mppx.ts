@@ -1,5 +1,5 @@
-import type { Method } from "mppx";
-import { Mppx as BaseMppx } from "mppx/server";
+import type { Method, Receipt as BaseReceipt } from "mppx";
+import { Mppx as BaseMppx, Transport as BaseTransport } from "mppx/server";
 import type { Address } from "viem";
 
 import type { ChargeSplit } from "../Methods.js";
@@ -18,9 +18,12 @@ type MegaethCreateDefaults = WalletClientResolver & {
   submissionMode?: SubmissionMode | undefined;
 };
 
-export function create<const methods extends BaseMppx.Methods>(
-  config: create.Config<methods>,
-): BaseMppx.Mppx<ApplyMegaethMethodDefaults<methods>> {
+export function create<
+  const methods extends BaseMppx.Methods,
+  const transport extends BaseTransport.AnyTransport = BaseTransport.Http,
+>(
+  config: create.Config<methods, transport>,
+): BaseMppx.Mppx<ApplyMegaethMethodDefaults<methods>, transport> {
   const {
     account,
     chainId,
@@ -33,6 +36,7 @@ export function create<const methods extends BaseMppx.Methods>(
     recipient,
     rpcUrls,
     submissionMode,
+    transport,
     walletClient,
     methods,
     ...baseConfig
@@ -40,6 +44,7 @@ export function create<const methods extends BaseMppx.Methods>(
 
   return BaseMppx.create({
     ...baseConfig,
+    transport: (transport ?? createMegaethHttpTransport()) as transport,
     methods: applyMegaethCreateDefaults(methods, {
       account,
       chainId,
@@ -54,14 +59,17 @@ export function create<const methods extends BaseMppx.Methods>(
       submissionMode,
       walletClient,
     }),
-  } as BaseMppx.create.Config<methods>) as unknown as BaseMppx.Mppx<
-    ApplyMegaethMethodDefaults<methods>
+  } as BaseMppx.create.Config<methods, transport>) as unknown as BaseMppx.Mppx<
+    ApplyMegaethMethodDefaults<methods>,
+    transport
   >;
 }
 
 export declare namespace create {
-  type Config<methods extends BaseMppx.Methods = BaseMppx.Methods> =
-    BaseMppx.create.Config<methods> & MegaethCreateDefaults;
+  type Config<
+    methods extends BaseMppx.Methods = BaseMppx.Methods,
+    transport extends BaseTransport.AnyTransport = BaseTransport.Http,
+  > = BaseMppx.create.Config<methods, transport> & MegaethCreateDefaults;
 }
 
 type MppxNamespace = {
@@ -75,6 +83,47 @@ export const Mppx: MppxNamespace = {
   create,
   toNodeListener: BaseMppx.toNodeListener,
 };
+
+function createMegaethHttpTransport(): BaseTransport.Http {
+  const transport = BaseTransport.http();
+
+  return BaseTransport.from({
+    ...transport,
+    name: "megaeth-http",
+    respondReceipt({ challengeId, receipt, response }) {
+      const headers = new Headers(response.headers);
+      headers.set(
+        "Payment-Receipt",
+        serializeMegaethReceipt({
+          ...receipt,
+          challengeId,
+        }),
+      );
+
+      return new Response(response.body, {
+        headers,
+        status: response.status,
+        statusText: response.statusText,
+      });
+    },
+  });
+}
+
+function serializeMegaethReceipt(
+  receipt: BaseReceipt.Receipt & { challengeId: string },
+): string {
+  const json = JSON.stringify(receipt);
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
 
 type ChargeHandlerDefaults = {
   currency: Address;

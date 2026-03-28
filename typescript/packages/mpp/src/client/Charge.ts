@@ -4,7 +4,7 @@ import type { Account, Address, Hex } from "viem";
 import * as Methods from "../Methods.js";
 import {
   resolveAccount,
-  resolveChainId,
+  resolveChargeChainId,
   resolvePublicClient,
   resolveWalletClient,
   type WalletClientResolver,
@@ -35,11 +35,12 @@ export function charge(
 
   return Method.toClient(Methods.charge, {
     async createCredential({ challenge }) {
-      const chainId = resolveChainId(challenge.request.methodDetails);
+      const chainId = resolveChargeChainId(challenge.request.methodDetails);
       const walletClient = await resolveWalletClient(parameters, chainId);
       const signer = resolveAccount(walletClient, account);
       const permit2Address = getPermit2Address(challenge.request);
       const returnsTransactionHashCredential = credentialMode === "hash";
+      const hasSplits = Boolean(challenge.request.methodDetails.splits?.length);
 
       if (
         returnsTransactionHashCredential &&
@@ -47,6 +48,11 @@ export function charge(
       ) {
         throw new Error(
           'Use credentialMode "permit2" for this challenge because the server asked to sponsor gas. Retry after switching away from the transaction-hash credential flow.',
+        );
+      }
+      if (returnsTransactionHashCredential && hasSplits) {
+        throw new Error(
+          'Use credentialMode "permit2" for split payments because PR 205 does not define a split transaction-hash credential flow.',
         );
       }
 
@@ -78,28 +84,31 @@ export function charge(
           ? signer.address
           : challenge.request.recipient
       ) as Address;
-      const typedData = buildTypedData({
-        chainId,
-        payload: {
-          ...unsignedPayload,
-          signature: "0x" as Hex,
-        },
-        permit2Address,
-        spender,
-      });
-
       onProgress?.({ type: "signing" });
-      const signature = await walletClient.signTypedData({
-        account: signer,
-        domain: typedData.domain,
-        message: typedData.message,
-        primaryType: typedData.primaryType,
-        types: typedData.types,
-      });
-
       const payload: Methods.ChargePermit2Payload = {
-        ...unsignedPayload,
-        signature,
+        type: "permit2",
+        authorizations: await Promise.all(
+          unsignedPayload.authorizations.map(async (authorization) => {
+            const typedData = buildTypedData({
+              authorization,
+              chainId,
+              permit2Address,
+              spender,
+            });
+            const signature = await walletClient.signTypedData({
+              account: signer,
+              domain: typedData.domain,
+              message: typedData.message,
+              primaryType: typedData.primaryType,
+              types: typedData.types,
+            });
+
+            return {
+              ...authorization,
+              signature,
+            };
+          }),
+        ),
       };
 
       if (credentialMode === "permit2") {
@@ -120,8 +129,8 @@ export function charge(
       );
       const publicClient = await resolvePublicClient(parameters, chainId);
       const calldata = encodePermit2Calldata({
+        authorization: payload.authorizations[0]!,
         owner: signer.address,
-        payload,
       });
 
       onProgress?.({ type: "paying" });

@@ -19,7 +19,7 @@ The default server path is intentionally short:
   - server-broadcast Permit2 credentials
   - client-broadcast transaction-hash credentials
   - fee sponsorship
-  - split payments
+  - split payments via ordered sequential Permit2 transfers
   - replay protection
   - instructive RFC 9457-compatible errors
 - Session flows:
@@ -287,8 +287,8 @@ just release-prep
 ## Draft Caveats
 
 - Charge direct settlement still signs the challenge recipient as the spender because PR 205 does not yet expose a separate spender field.
-- Split charge payments use a batch Permit2 extension when more than one transfer leg is needed.
-- Session receipts stay `mppx`-compatible in v1. Richer session acceptance state is returned alongside the resource instead of inside the serialized `Payment-Receipt` header.
+- Split charge payments use ordered `authorizations[]` and settle sequentially. They are not atomic, and `credentialMode: "hash"` is rejected for split requests.
+- The default MegaETH HTTP transport writes `challengeId` into the raw `Payment-Receipt` header. Generic `mppx` receipt parsing still drops that field because upstream `mppx` does not include it in the shared receipt schema.
 - Session gas sponsorship is out of scope in v1. The payer wallet pays gas for `open` and `topUp`, while the server settlement wallet pays gas for `settle` and `close`.
 
 ## License
